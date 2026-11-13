@@ -55,6 +55,7 @@ export class WorldScene extends Phaser.Scene {
       this.load.image(layer, `/background/bg_Autumn/Layers/${layer}.png`);
     }
     for (const side of sides) {
+      this.load.image(`house-${side}`, `/buildings/house${side === 'left' ? 'A' : 'B'}.png`);
       for (const backpack of [false, true]) {
         const folder = `${side === 'left' ? 'A' : 'B'}${backpack ? 'withBackpack' : ''}`;
         const prefix = `${side}-${backpack}`;
@@ -97,7 +98,7 @@ export class WorldScene extends Phaser.Scene {
       frameRate: 6,
     });
     for (const side of sides) {
-      this.drawDesk(world.desks[side]);
+      this.add.image(world.desks[side], groundY, `house-${side}`).setOrigin(0.5, 1).setScale(6);
       const mailbox = this.add.sprite(world.mailboxes[side], groundY, 'mail-6')
         .setOrigin(0.5, 42 / 44).setScale(1.7);
       this.mailboxes.set(side, mailbox);
@@ -160,15 +161,6 @@ export class WorldScene extends Phaser.Scene {
     context.drawImage(source, 0, 0);
     texture.refresh();
     return texture.key;
-  }
-
-  private drawDesk(x: number): void {
-    const g = this.add.graphics({ y: groundY });
-    g.fillStyle(0x583c36).fillRect(x - 23, -32, 7, 32).fillRect(x + 16, -32, 7, 32);
-    g.fillStyle(0x9b6041).fillRect(x - 30, -38, 60, 8);
-    g.fillStyle(0xd99a63).fillRect(x - 30, -40, 60, 4);
-    g.fillStyle(0xffe4b4).fillRect(x - 14, -45, 24, 5);
-    g.fillStyle(0x5b443b).fillRect(x + 13, -51, 3, 11);
   }
 
   private resize(): void {

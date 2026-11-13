@@ -112,7 +112,7 @@ export class UI {
 
   compose(): void {
     this.open('compose', `
-      <p class="eyebrow">AT YOUR WRITING DESK</p><h1>A postcard for you.</h1>
+      <p class="eyebrow">AT HOME</p><h1>A postcard for you.</h1>
       <form><label for="message">What would you like to say?</label>
       <textarea id="message" name="message" maxlength="1000" rows="6" required placeholder="Dear you,"></textarea>
       <div class="form-footer"><span id="count" class="small">0 / 1,000</span><span><button type="button" class="quiet" id="cancel">Cancel</button><button type="submit">Put in backpack →</button></span></div>
