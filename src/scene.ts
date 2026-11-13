@@ -272,7 +272,7 @@ export class WorldScene extends Phaser.Scene {
       const own = player.side === this.connection.side;
       let { x, y, vy, landingTicks } = own ? this.local : player;
       let moving = own ? direction !== 0 : player.moving;
-      let facing = own && direction ? direction : player.facing;
+      let facing = own ? direction : player.facing;
       if (!own && this.remote.length >= 2) {
         const [a, b] = this.remote;
         const fraction = Phaser.Math.Clamp((renderTime - a.time) / Math.max(1, b.time - a.time), 0, 1);
@@ -284,7 +284,8 @@ export class WorldScene extends Phaser.Scene {
         facing = b.player.facing;
       }
       const sprite = this.sprites.get(player.side)!;
-      sprite.setPosition(x, groundY + y).setFlipX(facing === -1).setAlpha(player.connected ? 1 : 0.35);
+      sprite.setPosition(x, groundY + y).setAlpha(player.connected ? 1 : 0.35);
+      if (facing) sprite.setFlipX(facing === -1);
       const action = y < 0 ? (vy < 0 ? 'jump' : 'fall') : landingTicks > 0 ? 'land' : moving ? 'run' : 'idle';
       const animation = `${player.side}-${player.carrying}-${action}`;
       if (action !== 'land' || sprite.anims.currentAnim?.key !== animation) sprite.play(animation, true);
