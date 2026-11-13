@@ -1,0 +1,16 @@
+{
+  "width": 3360,
+  "viewWidth": 960,
+  "minX": 48,
+  "maxX": 3312,
+  "speed": 140,
+  "jumpSpeed": 440,
+  "jumpBoost": 0.05,
+  "maxJumpChain": 6,
+  "landingTicks": 9,
+  "gravity": 1100,
+  "tickRate": 60,
+  "radius": 44,
+  "desks": { "left": 112, "right": 3248 },
+  "mailboxes": { "left": 216, "right": 3144 }
+}
