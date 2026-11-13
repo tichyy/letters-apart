@@ -1,0 +1,99 @@
+:root {
+  font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+  color: #fff1d6;
+  background: #143f5b;
+  font-synthesis: none;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; overscroll-behavior: none; }
+#game, #interface { position: fixed; inset: 0; }
+#game { touch-action: none; overflow: hidden; }
+canvas { display: block; image-rendering: pixelated; }
+#interface { pointer-events: none; }
+button, textarea, dialog { pointer-events: auto; font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, textarea:focus-visible { outline: 3px solid #cf8c48; outline-offset: 4px; }
+button:disabled { opacity: 0.6; cursor: wait; }
+[hidden] { display: none !important; }
+
+.hud {
+  position: absolute; inset: max(22px, env(safe-area-inset-top)) 28px auto;
+  display: flex; align-items: center; justify-content: flex-end;
+  font-size: 11px; text-shadow: 0 2px #14334b;
+}
+#status { text-align: right; opacity: 0.85; }
+#notice {
+  position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: calc(100% - 40px); text-align: center;
+  font-size: 12px; line-height: 1.7; background: #1e3336e8;
+  box-shadow: 0 3px 0 #132d32; padding: 10px 16px;
+}
+#notice:empty { display: none; }
+.bottom {
+  position: absolute; bottom: max(25px, env(safe-area-inset-bottom)); left: 20px; right: 20px;
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 14px;
+}
+.keyboard-help { font-size: 11px; opacity: 0.7; }
+.interaction {
+  padding: 12px 18px; color: #fff1d6; border: 1px solid #e3bc8870;
+  background: #392c27e8; box-shadow: 0 3px 0 #30251e; font-size: 12px;
+}
+.interaction:hover { background: #4e3830; }
+.touch-controls { display: none; }
+
+dialog {
+  width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
+  overflow-y: auto; padding: 32px; border: 2px solid #a77b54;
+  background: #f8ecd4; color: #513e35; box-shadow: 7px 7px 0 #312f3066;
+}
+dialog::backdrop { background: #122e3f80; }
+.eyebrow { margin: 0 0 14px; font-size: 10px; letter-spacing: 2px; color: #98704b; }
+h1 { font-family: Georgia, serif; font-weight: 400; font-size: 30px; margin: 0 0 18px; }
+dialog p { font-size: 13px; line-height: 1.7; }
+dialog button {
+  padding: 11px 14px; border: 1px solid #8e6247; background: #77503c; color: #fff3dc;
+  box-shadow: 0 2px 0 #573b2d; font-size: 12px;
+}
+dialog button:hover { background: #8e6247; }
+dialog .quiet { border-color: transparent; background: transparent; color: #77503c; box-shadow: none; }
+.home-choices { display: flex; gap: 12px; margin-top: 25px; }
+.home-choices button { flex: 1; }
+.small { font-size: 10px; color: #947862; }
+label { display: block; font-size: 12px; margin: 22px 0 10px; }
+textarea {
+  width: 100%; resize: vertical; min-height: 140px; max-height: 45dvh; padding: 14px;
+  border: 1px solid #c7ab86; border-radius: 0; color: #513e35; background: #fff7e8;
+  font-size: 16px; line-height: 1.6;
+}
+.form-footer, .postcard-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; }
+.form-footer > span:last-child { display: flex; gap: 8px; }
+#form-error { margin: 12px 0 0; color: #9b3d30; font-size: 11px; }
+#form-error:empty { display: none; }
+.postcard-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; line-height: 1.9; padding: 12px 0 24px; }
+time { color: #947862; font-size: 11px; }
+
+@media (pointer: coarse) {
+  .keyboard-help { display: none; }
+  .touch-controls { position: absolute; bottom: max(22px, env(safe-area-inset-bottom)); left: max(22px, env(safe-area-inset-left)); display: flex; gap: 12px; }
+  .touch-controls button { width: 62px; height: 56px; border: 1px solid #e3bc8870; background: #392c27d9; color: #fff1d6; font-size: 25px; touch-action: none; user-select: none; }
+  .touch-controls button:active { background: #80563b; }
+  .bottom { left: auto; right: max(22px, env(safe-area-inset-right)); max-width: calc(100vw - 260px); bottom: max(22px, env(safe-area-inset-bottom)); }
+  .interaction { min-height: 56px; max-width: 250px; }
+}
+
+@media (max-width: 600px) {
+  .hud { left: 16px; right: 16px; font-size: 10px; }
+  dialog { padding: 22px; }
+  h1 { font-size: 26px; }
+  .form-footer { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-height: 440px) {
+  dialog { padding: 18px 24px; }
+  dialog .eyebrow { margin-bottom: 8px; }
+  h1 { font-size: 24px; margin-bottom: 10px; }
+  label { margin-top: 10px; }
+  textarea { min-height: 80px; }
+}
