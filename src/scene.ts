@@ -274,6 +274,7 @@ export class WorldScene extends Phaser.Scene {
     // Render the partner one snapshot interval behind, blending actual received positions.
     const renderTime = performance.now() - 65;
     while (this.remote.length > 2 && this.remote[1].time <= renderTime) this.remote.shift();
+    const zoom = this.cameras.main.zoom;
     for (const player of this.players) {
       const own = player.side === this.connection.side;
       let { x, y, vy, landingTicks } = own ? this.local : player;
@@ -290,7 +291,9 @@ export class WorldScene extends Phaser.Scene {
         facing = b.player.facing;
       }
       const sprite = this.sprites.get(player.side)!;
-      sprite.setPosition(x, groundY + y).setAlpha(player.connected ? 1 : 0.35);
+      // Snap drawing to the zoomed pixel grid, keeping movement precise.
+      sprite.setPosition(Math.round(x * zoom) / zoom, Math.round((groundY + y) * zoom) / zoom)
+        .setAlpha(player.connected ? 1 : 0.35);
       if (facing) sprite.setFlipX(facing === -1);
       const action = y < 0 ? (vy < 0 ? 'jump' : 'fall') : landingTicks > 0 ? 'land' : moving ? 'run' : 'idle';
       const animation = `${player.side}-${player.carrying}-${action}`;
