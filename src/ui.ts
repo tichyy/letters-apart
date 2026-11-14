@@ -121,6 +121,7 @@ export class UI {
     const form = this.postcard(sessionStorage.getItem('letters-draft') ?? '', stamp, true);
     const textarea = form.querySelector('textarea')!;
     const pack = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
+    const reset = form.querySelector<HTMLButtonElement>('[type="reset"]')!;
     const preview = form.querySelector<HTMLElement>('.postcard-stamp')!;
     const update = () => {
       const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
@@ -130,11 +131,24 @@ export class UI {
         preview.setAttribute('aria-label', `Stamp ${selected.value}`);
         preview.hidden = false;
         sessionStorage.setItem('letters-draft-stamp', selected.value);
+      } else {
+        preview.hidden = true;
+        preview.style.backgroundImage = '';
+        sessionStorage.removeItem('letters-draft-stamp');
       }
       pack.disabled = this.submitting || !textarea.value.trim() || !selected;
+      reset.disabled = this.submitting;
     };
     update();
     form.oninput = update;
+    form.onreset = event => {
+      event.preventDefault();
+      if (this.submitting) return;
+      textarea.value = '';
+      for (const input of form.querySelectorAll<HTMLInputElement>('[name="stamp"]')) input.checked = false;
+      form.querySelector('#form-error')!.textContent = '';
+      update();
+    };
     form.onsubmit = event => {
       event.preventDefault();
       const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
@@ -144,7 +158,7 @@ export class UI {
         return;
       }
       this.submitting = true;
-      pack.disabled = true;
+      update();
     };
     if (!matchMedia('(pointer: coarse)').matches) textarea.focus();
   }
@@ -172,7 +186,8 @@ export class UI {
               ${stamp ? `style="background-image: url('/ui/stamp${stamp}.png')"` : 'hidden'}></span>
           </div>
           <button type="button" class="postcard-turn" aria-label="Turn postcard over" aria-pressed="false"></button>
-          ${writing ? '<button type="submit" class="postcard-pack" aria-label="Put postcard in backpack" title="Put postcard in backpack" disabled></button>' : ''}
+          ${writing ? `<button type="reset" class="postcard-reset" aria-label="Reset postcard" title="Reset postcard"></button>
+            <button type="submit" class="postcard-pack" aria-label="Put postcard in backpack" title="Put postcard in backpack" disabled></button>` : ''}
         </div>
         ${writing ? `<div class="postcard-stamps" role="group" aria-label="Choose a stamp">
           ${([1, 2, 3] as const).map(value => `<input type="radio" name="stamp" value="${value}"
@@ -190,7 +205,7 @@ export class UI {
       form.querySelector<HTMLElement>('.postcard-back')!.hidden = front;
       turn.setAttribute('aria-pressed', String(front));
     };
-    for (const name of ['postcard2', 'button_rotate2', 'button_rotate3', 'button_send2', 'button_send3']) {
+    for (const name of ['postcard2', 'button_rotate2', 'button_rotate3', 'button_send2', 'button_send3', 'button_reset2', 'button_reset3']) {
       const image = new Image();
       image.src = `/ui/${name}.png`;
     }
@@ -202,6 +217,8 @@ export class UI {
     const submit = this.panel.querySelector<HTMLButtonElement>('[type="submit"]');
     if (submit) submit.disabled = !this.panel.querySelector('textarea')!.value.trim()
       || !this.panel.querySelector('[name="stamp"]:checked');
+    const reset = this.panel.querySelector<HTMLButtonElement>('[type="reset"]');
+    if (reset) reset.disabled = false;
     const error = this.panel.querySelector('#form-error');
     if (this.panel.open && error) error.textContent = text;
     else this.toast(text);

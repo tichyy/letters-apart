@@ -83,7 +83,7 @@ dialog:is([data-kind="compose"], [data-kind="postcard"]) {
   padding: 0; border: 0; border-radius: 0; box-shadow: none;
   background-color: transparent; background-repeat: no-repeat; image-rendering: pixelated;
 }
-.postcard-turn, .postcard-pack {
+.postcard-turn, .postcard-pack, .postcard-reset {
   position: absolute; width: 14.1509%; height: 18.0723%; background-size: 853.3333% 853.3333%;
 }
 .postcard-turn {
@@ -94,15 +94,22 @@ dialog:is([data-kind="compose"], [data-kind="postcard"]) {
   left: 85.8491%; top: 78.3133%; background-position: 94.6903% 63.7168%;
   background-image: url('/ui/button_send1.png');
 }
-.postcard-pack:disabled { cursor: default; }
+.postcard-reset {
+  left: 0; top: 0; background-position: 14.1593% 6.1947%;
+  background-image: url('/ui/button_reset1.png');
+}
+.postcard-pack:disabled, .postcard-reset:disabled { cursor: default; }
 .postcard-turn:focus-visible { background-image: url('/ui/button_rotate2.png'); outline: none; }
 .postcard-pack:enabled:focus-visible { background-image: url('/ui/button_send2.png'); outline: none; }
+.postcard-reset:enabled:focus-visible { background-image: url('/ui/button_reset2.png'); outline: none; }
 @media (hover: hover) {
   .postcard-turn:hover { background-image: url('/ui/button_rotate2.png'); }
   .postcard-pack:enabled:hover { background-image: url('/ui/button_send2.png'); }
+  .postcard-reset:enabled:hover { background-image: url('/ui/button_reset2.png'); }
 }
 .postcard-turn:active { background-image: url('/ui/button_rotate3.png'); }
 .postcard-pack:enabled:active { background-image: url('/ui/button_send3.png'); }
+.postcard-reset:enabled:active { background-image: url('/ui/button_reset3.png'); }
 .postcard-stamp, .postcard-stamps input {
   background-size: 800% 853.3333%; background-position: 79.4643% 16.8142%;
   background-repeat: no-repeat; image-rendering: pixelated;
@@ -116,7 +123,6 @@ dialog:is([data-kind="compose"], [data-kind="postcard"]) {
   opacity: 0.5; cursor: pointer; pointer-events: auto;
 }
 .postcard-stamps input:is(:checked, :hover, :focus-visible) { opacity: 1; }
-.postcard-editor[data-side="front"] .postcard-stamps { visibility: hidden; }
 #form-error { margin: 12px 0 0; color: #fff1d6; font-size: 11px; text-align: center; }
 #form-error:empty { display: none; }
 
