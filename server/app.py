@@ -105,7 +105,7 @@ def create_app(database: Path | None = None) -> FastAPI:
     else:
         @app.get("/")
         def development():
-            return {"message": "Run npm run dev for development, or npm run build first."}
+            return {"message": "Run npm --prefix client run dev for development, or npm --prefix client run build first."}
 
     return app
 

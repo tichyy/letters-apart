@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import world from '../world.json';
+import world from '../../world.json';
 import { Connection } from './connection';
 import type { Direction, Input, Message, Motion, Player, Side } from './protocol';
 import { UI } from './ui';
