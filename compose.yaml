@@ -1,0 +1,12 @@
+services:
+  game:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      POSTCARD_DB: /data/postcards.sqlite3
+    volumes:
+      - game-data:/data
+
+volumes:
+  game-data:

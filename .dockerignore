@@ -1,0 +1,15 @@
+.git
+.agents
+.aws
+.codex
+.venv
+.pytest_cache
+dist
+data
+**/node_modules
+**/__pycache__
+**/*.py[cod]
+**/.env*
+**/.npmrc
+**/*.sqlite*
+**/*:Zone.Identifier
