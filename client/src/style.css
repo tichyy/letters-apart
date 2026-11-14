@@ -66,6 +66,9 @@ dialog:is([data-kind="compose"], [data-kind="postcard"]) {
   max-width: none; max-height: none; padding: 0; border: 0;
   background: transparent; box-shadow: none; overflow: visible;
 }
+dialog[data-kind="postcard"] {
+  width: min(636px, calc(100vw - 32px), calc((100dvh - 32px) * 106 / 101));
+}
 .postcard-editor { margin: 0; -webkit-tap-highlight-color: transparent; }
 .postcard-stage { position: relative; aspect-ratio: 106 / 83; overflow: hidden; container-type: inline-size; }
 /* Crop the shared 128px artwork canvas to the postcard and buttons. */
@@ -119,14 +122,17 @@ dialog:is([data-kind="compose"], [data-kind="postcard"]) {
 .postcard-reset:enabled:active { background-image: url('/ui/button_reset3.png'); }
 .postcard-previous:enabled:active { background-image: url('/ui/button_left3.png'); }
 .postcard-next:enabled:active { background-image: url('/ui/button_right3.png'); }
-.postcard-navigation { display: flex; justify-content: center; gap: 12px; margin-top: 8px; }
+/* Continue the shared artwork canvas below the stage, from source y=90 to y=108. */
+.postcard-navigation { position: relative; aspect-ratio: 106 / 18; }
 .postcard-navigation button {
-  width: 60px; height: 60px; background-size: 853.3333% 853.3333%;
-  background-position: 44.2478% 82.3009%;
+  position: absolute; top: 16.6667%; width: 13.2075%; height: 83.3333%;
+  background-size: 914.2857% 853.3333%; background-position: 43.8596% 82.3009%;
 }
 .postcard-navigation button:disabled { cursor: default; }
-.postcard-previous { background-image: url('/ui/button_left1.png'); }
-.postcard-next { background-image: url('/ui/button_right1.png'); transform: scaleX(-1); }
+.postcard-previous { left: 32.0755%; background-image: url('/ui/button_left1.png'); }
+.postcard-navigation .postcard-next {
+  left: 45.2830%; background-image: url('/ui/button_right1.png'); background-position: 56.1404% 82.3009%;
+}
 .postcard-stamp, .postcard-stamps input {
   background-size: 800% 853.3333%; background-position: 79.4643% 16.8142%;
   background-repeat: no-repeat; image-rendering: pixelated;
