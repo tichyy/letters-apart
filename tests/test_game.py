@@ -1,6 +1,8 @@
 import asyncio
 import json
 import math
+import sqlite3
+from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
@@ -58,6 +60,39 @@ def test_writing_requires_own_desk_and_one_carried_card(game):
         write(game, "left", "A duplicate")
     assert game.handle("left", {"type": "interact"}) is None
     assert game.store.db.execute("SELECT COUNT(*) FROM postcards").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("stamp", [1, 2, 3])
+def test_selected_stamp_survives_delivery_and_restart(game, tmp_path, stamp):
+    game.handle("left", {"type": "write", "body": "See you soon.", "stamp": stamp})
+    deliver(game, "left")
+    with closing(Store(tmp_path / "postcards.sqlite3")) as store:
+        card = store.read("right")
+        assert card["body"] == "See you soon."
+        assert card["stamp"] == stamp
+
+
+@pytest.mark.parametrize("stamp", [0, 4, "2", True, None])
+def test_invalid_stamp_is_not_saved(game, stamp):
+    with pytest.raises(ValueError, match="three stamps"):
+        game.handle("left", {"type": "write", "body": "Hello", "stamp": stamp})
+    assert not game.mail["left"]["carrying"]
+
+
+def test_existing_postcards_get_default_stamp(tmp_path):
+    path = tmp_path / "old-postcards.sqlite3"
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("""CREATE TABLE postcards (
+            id INTEGER PRIMARY KEY, sender TEXT, body TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, delivered_at TEXT, read_at TEXT
+        )""")
+        db.execute("""INSERT INTO postcards(sender, body, delivered_at)
+            VALUES ('left', 'An older postcard.', CURRENT_TIMESTAMP)""")
+        db.commit()
+    with closing(Store(path)) as store:
+        card = store.read("right")
+        assert card["body"] == "An older postcard."
+        assert card["stamp"] == 1
 
 
 @pytest.mark.parametrize("body", [None, [], "", " \n ", "a" * 1001])

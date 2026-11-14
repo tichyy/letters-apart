@@ -1,5 +1,6 @@
 export type Side = 'left' | 'right';
 export type Direction = -1 | 0 | 1;
+export type Stamp = 1 | 2 | 3;
 
 export interface Input {
   seq: number;
@@ -30,7 +31,7 @@ export type Message =
   | { type: 'state'; players: Player[] }
   | { type: 'compose' }
   | { type: 'written' }
-  | { type: 'postcard'; body: string; date: string }
+  | { type: 'postcard'; body: string; date: string; stamp: Stamp }
   | { type: 'mailbox_used'; side: Side }
   | { type: 'delivered'; sender: Side; recipient: Side }
   | { type: 'error'; message: string }

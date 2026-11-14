@@ -27,7 +27,7 @@ function receive(message: Message): void {
   switch (message.type) {
     case 'compose': ui.compose(); break;
     case 'written': ui.written(); break;
-    case 'postcard': ui.read(message.body, message.date); break;
+    case 'postcard': ui.read(message.body, message.stamp); break;
     case 'occupied': ui.chooseHome(true); break;
     case 'error': ui.error(message.message); break;
     case 'mailbox_used': scene.useMailbox(message.side); break;

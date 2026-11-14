@@ -23,6 +23,10 @@ class Store:
             CREATE UNIQUE INDEX IF NOT EXISTS one_carried_postcard
             ON postcards(sender) WHERE delivered_at IS NULL
         """)
+        if "stamp" not in {row["name"] for row in self.db.execute("PRAGMA table_info(postcards)")}:
+            self.db.execute(
+                "ALTER TABLE postcards ADD COLUMN stamp INTEGER NOT NULL DEFAULT 1 CHECK (stamp BETWEEN 1 AND 3)"
+            )
         self.db.commit()
 
     def summary(self, side: str) -> dict:
@@ -37,10 +41,10 @@ class Store:
         ).fetchone()[0]
         return {"carrying": bool(carrying), "unread": unread}
 
-    def write(self, side: str, body: str) -> None:
+    def write(self, side: str, body: str, stamp: int = 1) -> None:
         with self.db:
             self.db.execute(
-                "INSERT INTO postcards(sender, body) VALUES (?, ?)", (side, body)
+                "INSERT INTO postcards(sender, body, stamp) VALUES (?, ?, ?)", (side, body, stamp)
             )
 
     def deliver(self, side: str) -> None:
@@ -65,7 +69,7 @@ class Store:
             self.db.execute(
                 "UPDATE postcards SET read_at = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],)
             )
-        return {"body": row["body"], "date": row["delivered_at"]}
+        return {"body": row["body"], "date": row["delivered_at"], "stamp": row["stamp"]}
 
     def close(self) -> None:
         self.db.close()

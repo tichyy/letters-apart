@@ -56,23 +56,69 @@ dialog button {
   padding: 11px 14px; border: 1px solid #8e6247; background: #77503c; color: #fff3dc;
   box-shadow: 0 2px 0 #573b2d; font-size: 12px;
 }
-dialog button:hover { background: #8e6247; }
-dialog .quiet { border-color: transparent; background: transparent; color: #77503c; box-shadow: none; }
+dialog[data-kind="home"] button:hover { background: #8e6247; }
 .home-choices { display: flex; gap: 12px; margin-top: 25px; }
 .home-choices button { flex: 1; }
 .small { font-size: 10px; color: #947862; }
-label { display: block; font-size: 12px; margin: 22px 0 10px; }
-textarea {
-  width: 100%; resize: vertical; min-height: 140px; max-height: 45dvh; padding: 14px;
-  border: 1px solid #c7ab86; border-radius: 0; color: #513e35; background: #fff7e8;
-  font-size: 16px; line-height: 1.6;
+dialog:is([data-kind="compose"], [data-kind="postcard"]) {
+  width: min(636px, calc(100vw - 32px), calc((100dvh - 96px) * 106 / 83));
+  max-width: none; max-height: none; padding: 0; border: 0;
+  background: transparent; box-shadow: none; overflow: visible;
 }
-.form-footer, .postcard-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; }
-.form-footer > span:last-child { display: flex; gap: 8px; }
-#form-error { margin: 12px 0 0; color: #9b3d30; font-size: 11px; }
+.postcard-editor { margin: 0; -webkit-tap-highlight-color: transparent; }
+.postcard-stage { position: relative; aspect-ratio: 106 / 83; overflow: hidden; container-type: inline-size; }
+/* Crop the shared 128px artwork canvas to the postcard and buttons. */
+.postcard-art {
+  position: absolute; z-index: 1; width: 120.7547%; height: auto; left: -15.0943%; top: -8.4337%;
+  image-rendering: pixelated; pointer-events: none; user-select: none;
+}
+.postcard-back { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.postcard-message {
+  position: absolute; left: 7.5472%; top: 38.5542%; width: 38.6792%; height: 50.6024%;
+  padding: 0; margin: 0; border: 0; border-radius: 0; outline: none; resize: none;
+  background: transparent; color: #513e35; font-size: clamp(16px, 3.5cqw, 20px); line-height: 1.5;
+}
+.postcard-message:focus-visible { outline: none; }
+.postcard-editor button {
+  padding: 0; border: 0; border-radius: 0; box-shadow: none;
+  background-color: transparent; background-repeat: no-repeat; image-rendering: pixelated;
+}
+.postcard-turn, .postcard-pack {
+  position: absolute; width: 14.1509%; height: 18.0723%; background-size: 853.3333% 853.3333%;
+}
+.postcard-turn {
+  left: 66.9811%; top: 0; background-position: 76.9912% 6.1947%;
+  background-image: url('/ui/button_rotate1.png');
+}
+.postcard-pack {
+  left: 85.8491%; top: 78.3133%; background-position: 94.6903% 63.7168%;
+  background-image: url('/ui/button_send1.png');
+}
+.postcard-pack:disabled { cursor: default; }
+.postcard-turn:focus-visible { background-image: url('/ui/button_rotate2.png'); outline: none; }
+.postcard-pack:enabled:focus-visible { background-image: url('/ui/button_send2.png'); outline: none; }
+@media (hover: hover) {
+  .postcard-turn:hover { background-image: url('/ui/button_rotate2.png'); }
+  .postcard-pack:enabled:hover { background-image: url('/ui/button_send2.png'); }
+}
+.postcard-turn:active { background-image: url('/ui/button_rotate3.png'); }
+.postcard-pack:enabled:active { background-image: url('/ui/button_send3.png'); }
+.postcard-stamp, .postcard-stamps input {
+  background-size: 800% 853.3333%; background-position: 79.4643% 16.8142%;
+  background-repeat: no-repeat; image-rendering: pixelated;
+}
+.postcard-stamp {
+  position: absolute; left: 68.8679%; top: 14.4578%; width: 15.0943%; height: 18.0723%;
+}
+.postcard-stamps { display: flex; justify-content: center; gap: 16px; margin-top: 8px; }
+.postcard-stamps input {
+  appearance: none; width: 48px; height: 45px; margin: 0; border: 0; border-radius: 0; background-color: transparent;
+  opacity: 0.5; cursor: pointer; pointer-events: auto;
+}
+.postcard-stamps input:is(:checked, :hover, :focus-visible) { opacity: 1; }
+.postcard-editor[data-side="front"] .postcard-stamps { visibility: hidden; }
+#form-error { margin: 12px 0 0; color: #fff1d6; font-size: 11px; text-align: center; }
 #form-error:empty { display: none; }
-.postcard-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; line-height: 1.9; padding: 12px 0 24px; }
-time { color: #947862; font-size: 11px; }
 
 @media (pointer: coarse) {
   .keyboard-help { display: none; }
@@ -87,13 +133,10 @@ time { color: #947862; font-size: 11px; }
   .hud { left: 16px; right: 16px; font-size: 10px; }
   dialog { padding: 22px; }
   h1 { font-size: 26px; }
-  .form-footer { align-items: flex-start; flex-direction: column; }
 }
 
 @media (max-height: 440px) {
   dialog { padding: 18px 24px; }
   dialog .eyebrow { margin-bottom: 8px; }
   h1 { font-size: 24px; margin-bottom: 10px; }
-  label { margin-top: 10px; }
-  textarea { min-height: 80px; }
 }

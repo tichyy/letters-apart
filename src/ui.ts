@@ -1,4 +1,4 @@
-import type { Direction, Side } from './protocol';
+import type { Direction, Side, Stamp } from './protocol';
 
 export class UI {
   direction: Direction = 0;
@@ -48,6 +48,11 @@ export class UI {
     this.panel.addEventListener('close', () => { this.submitting = false; });
     this.panel.addEventListener('cancel', event => {
       if (this.submitting || this.panel.dataset.kind === 'home') event.preventDefault();
+    });
+    this.panel.addEventListener('click', event => {
+      if (event.target === this.panel && !this.submitting && this.panel.dataset.kind !== 'home') {
+        this.panel.close();
+      }
     });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-direction]')) {
       const direction = Number(button.dataset.direction) as Direction;
@@ -111,56 +116,92 @@ export class UI {
   }
 
   compose(): void {
-    this.open('compose', `
-      <p class="eyebrow">AT HOME</p><h1>A postcard for you.</h1>
-      <form><label for="message">What would you like to say?</label>
-      <textarea id="message" name="message" maxlength="1000" rows="6" required placeholder="Dear you,"></textarea>
-      <div class="form-footer"><span id="count" class="small">0 / 1,000</span><span><button type="button" class="quiet" id="cancel">Cancel</button><button type="submit">Put in backpack →</button></span></div>
-      <p id="form-error" role="alert"></p></form>`);
-    const form = this.panel.querySelector('form')!;
-    const textarea = this.panel.querySelector('textarea')!;
-    textarea.value = sessionStorage.getItem('letters-draft') ?? '';
-    const count = this.panel.querySelector('#count')!;
+    const savedStamp = sessionStorage.getItem('letters-draft-stamp');
+    const stamp = savedStamp === '1' ? 1 : savedStamp === '2' ? 2 : savedStamp === '3' ? 3 : null;
+    const form = this.postcard(sessionStorage.getItem('letters-draft') ?? '', stamp, true);
+    const textarea = form.querySelector('textarea')!;
+    const pack = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
+    const preview = form.querySelector<HTMLElement>('.postcard-stamp')!;
     const update = () => {
-      count.textContent = `${textarea.value.length} / 1,000`;
+      const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
       sessionStorage.setItem('letters-draft', textarea.value);
+      if (selected) {
+        preview.style.backgroundImage = `url('/ui/stamp${selected.value}.png')`;
+        preview.setAttribute('aria-label', `Stamp ${selected.value}`);
+        preview.hidden = false;
+        sessionStorage.setItem('letters-draft-stamp', selected.value);
+      }
+      pack.disabled = this.submitting || !textarea.value.trim() || !selected;
     };
     update();
-    textarea.oninput = update;
-    this.panel.querySelector<HTMLButtonElement>('#cancel')!.onclick = () => this.panel.close();
+    form.oninput = update;
     form.onsubmit = event => {
       event.preventDefault();
-      if (this.submitting || !textarea.value.trim()) return;
-      if (!this.send({ type: 'write', body: textarea.value.trim() })) {
+      const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
+      if (this.submitting || !textarea.value.trim() || !selected) return;
+      if (!this.send({ type: 'write', body: textarea.value.trim(), stamp: Number(selected.value) })) {
         this.error('Connection lost. Your draft is saved; try again when connected.');
         return;
       }
       this.submitting = true;
-      this.panel.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled = true;
+      pack.disabled = true;
     };
-    textarea.focus();
+    if (!matchMedia('(pointer: coarse)').matches) textarea.focus();
   }
 
   written(): void {
     sessionStorage.removeItem('letters-draft');
+    sessionStorage.removeItem('letters-draft-stamp');
     this.panel.close();
     this.toast('Postcard packed. Deliver it to the other mailbox.');
   }
 
-  read(body: string, date: string): void {
-    this.open('postcard', `
-      <p class="eyebrow">A POSTCARD FROM THE OTHER SIDE</p><h1>You’ve got mail.</h1>
-      <p class="postcard-body"></p><div class="postcard-footer"><time></time><button>Keep it safe</button></div>`);
-    this.panel.querySelector('.postcard-body')!.textContent = body;
-    this.panel.querySelector('time')!.textContent = new Date(`${date.replace(' ', 'T')}Z`)
-      .toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
-    this.panel.querySelector('button')!.onclick = () => this.panel.close();
+  read(body: string, stamp: Stamp): void {
+    this.postcard(body, stamp, false);
+  }
+
+  private postcard(body: string, stamp: Stamp | null, writing: boolean): HTMLFormElement {
+    this.open(writing ? 'compose' : 'postcard', `
+      <form class="postcard-editor" data-side="back">
+        <div class="postcard-stage">
+          <img class="postcard-art" src="/ui/postcard1.png" alt="Postcard" draggable="false">
+          <div class="postcard-back">
+            <textarea class="postcard-message" name="message" aria-label="Postcard message"
+              maxlength="1000" required ${writing ? '' : 'readonly'}></textarea>
+            <span class="postcard-stamp" role="img" aria-label="Stamp ${stamp}"
+              ${stamp ? `style="background-image: url('/ui/stamp${stamp}.png')"` : 'hidden'}></span>
+          </div>
+          <button type="button" class="postcard-turn" aria-label="Turn postcard over" aria-pressed="false"></button>
+          ${writing ? '<button type="submit" class="postcard-pack" aria-label="Put postcard in backpack" title="Put postcard in backpack" disabled></button>' : ''}
+        </div>
+        ${writing ? `<div class="postcard-stamps" role="group" aria-label="Choose a stamp">
+          ${([1, 2, 3] as const).map(value => `<input type="radio" name="stamp" value="${value}"
+            aria-label="Stamp ${value}" required ${value === stamp ? 'checked' : ''}
+            style="background-image: url('/ui/stamp${value}.png')">`).join('')}
+        </div><p id="form-error" role="alert"></p>` : ''}
+      </form>`);
+    const form = this.panel.querySelector('form')!;
+    form.querySelector('textarea')!.value = body;
+    const turn = form.querySelector<HTMLButtonElement>('.postcard-turn')!;
+    turn.onclick = () => {
+      const front = form.dataset.side !== 'front';
+      form.dataset.side = front ? 'front' : 'back';
+      form.querySelector<HTMLImageElement>('.postcard-art')!.src = `/ui/postcard${front ? 2 : 1}.png`;
+      form.querySelector<HTMLElement>('.postcard-back')!.hidden = front;
+      turn.setAttribute('aria-pressed', String(front));
+    };
+    for (const name of ['postcard2', 'button_rotate2', 'button_rotate3', 'button_send2', 'button_send3']) {
+      const image = new Image();
+      image.src = `/ui/${name}.png`;
+    }
+    return form;
   }
 
   error(text: string): void {
     this.submitting = false;
     const submit = this.panel.querySelector<HTMLButtonElement>('[type="submit"]');
-    if (submit) submit.disabled = false;
+    if (submit) submit.disabled = !this.panel.querySelector('textarea')!.value.trim()
+      || !this.panel.querySelector('[name="stamp"]:checked');
     const error = this.panel.querySelector('#form-error');
     if (this.panel.open && error) error.textContent = text;
     else this.toast(text);

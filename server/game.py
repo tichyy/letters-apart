@@ -173,13 +173,16 @@ class Game:
 
         if kind == "write":
             body = message.get("body")
+            stamp = message.get("stamp", 1)
             if not isinstance(body, str) or not 1 <= len(body.strip()) <= 1000:
                 raise ValueError("Write a message between 1 and 1,000 characters.")
+            if type(stamp) is not int or stamp not in (1, 2, 3):
+                raise ValueError("Choose one of the three stamps.")
             if not self.nearby(side, WORLD["desks"][side]):
                 raise ValueError("Return to your desk to write a postcard.")
             if self.mail[side]["carrying"]:
                 raise ValueError("Deliver the postcard in your backpack first.")
-            self.store.write(side, body.strip())
+            self.store.write(side, body.strip(), stamp)
             self.refresh_mail()
             return {"type": "written"}
 
