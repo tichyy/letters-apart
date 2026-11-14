@@ -125,15 +125,21 @@ export class WorldScene extends Phaser.Scene {
       sprite.play(`${prefix}-idle`).setFlipX(side === 'right');
     }
 
-    this.resize();
-    this.scale.on('resize', this.resize, this);
-    // Observe the container directly: mobile orientation events can precede layout.
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      if (width && height) this.scale.resize(width, height);
-    });
+    // Observe layout and pixel density separately: zoom can change either one.
+    let density: MediaQueryList | undefined;
+    const resize = () => {
+      this.resize();
+      density?.removeEventListener('change', resize);
+      density = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      density.addEventListener('change', resize);
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
     observer.observe(document.querySelector('#game')!);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => observer.disconnect());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      observer.disconnect();
+      density?.removeEventListener('change', resize);
+    });
     window.addEventListener('keydown', event => {
       if (this.ui.blocked) return;
       if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', 'Space', 'ArrowUp', 'KeyW'].includes(event.code)) event.preventDefault();
@@ -164,19 +170,20 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private resize(): void {
-    const { width, height } = this.scale;
-    // Keep pixels whole; narrow screens show less of the world.
-    const zoom = Math.max(1, Math.floor(height / 540));
-    const visibleWidth = width / zoom;
-    const visibleHeight = height / zoom;
-    const top = -Math.round(height * 0.66) / zoom;
-    this.cameras.main.setRoundPixels(false).setZoom(zoom).setScroll(0, top);
-    this.cameras.main.scrollY = top + (visibleHeight - height) / 2;
-    this.background.setY(top).setDisplaySize(visibleWidth, visibleHeight);
-    this.soil.setSize(world.width, Math.max(12, visibleHeight * 0.34));
-    // Draw parallax at screen resolution to avoid resampling it twice.
+    const { width: cssWidth, height: cssHeight } = document.querySelector('#game')!.getBoundingClientRect();
+    if (!cssWidth || !cssHeight) return;
+    const pixelRatio = window.devicePixelRatio || 1;
+    // Enlarge a small canvas by whole device pixels, even at fractional browser zoom.
+    const zoom = Math.max(1, Math.round(Math.max(1, Math.floor(cssHeight / 540)) * pixelRatio));
+    const width = Math.ceil(cssWidth * pixelRatio / zoom);
+    const height = Math.ceil(cssHeight * pixelRatio / zoom);
+    this.scale.setZoom(zoom / pixelRatio).resize(width, height);
+    const top = -Math.round(height * 0.66);
+    this.cameras.main.setOrigin(0, 0).setRoundPixels(false).setScroll(0, top);
+    this.background.setY(top).setDisplaySize(width, height);
+    this.soil.setSize(world.width, Math.max(12, height * 0.34));
     for (const { sprite } of this.scenery) {
-      sprite.setSize(width, Math.ceil(540 * zoom)).setScale(1 / zoom).setTileScale(3 * zoom);
+      sprite.setSize(width, 540);
     }
     this.followPlayer();
   }
@@ -187,8 +194,8 @@ export class WorldScene extends Phaser.Scene {
     const halfWidth = Math.min(visibleWidth, world.width) / 2;
     const center = Phaser.Math.Clamp(this.local.x, halfWidth, world.width - halfWidth);
     // Align camera movement to screen pixels.
-    camera.scrollX = Math.round((center - this.scale.width / 2) * camera.zoom) / camera.zoom;
-    const left = camera.scrollX + (this.scale.width - visibleWidth) / 2;
+    const left = Math.round((center - visibleWidth / 2) * camera.zoom) / camera.zoom;
+    camera.scrollX = left;
     this.background.setX(left);
     // Cover only the viewport, scrolling each pattern at its own depth.
     for (const { sprite, speed } of this.scenery) {

@@ -21,7 +21,7 @@ new Phaser.Game({
   backgroundColor: '#143f5b',
   pixelArt: true,
   roundPixels: true,
-  scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
+  scale: { mode: Phaser.Scale.NONE, width: window.innerWidth, height: window.innerHeight },
   scene,
   fps: { target: 60 },
   audio: { noAudio: true },
