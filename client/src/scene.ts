@@ -31,7 +31,6 @@ function move(state: Motion, input: Input): Motion {
 export class WorldScene extends Phaser.Scene {
   private sprites = new Map<Side, Phaser.GameObjects.Sprite>();
   private mailboxes = new Map<Side, Phaser.GameObjects.Sprite>();
-  private mailFlags = new Map<Side, Phaser.GameObjects.Text>();
   private players: Player[] = [];
   private remote: { time: number; player: Player }[] = [];
   private pending: Input[] = [];
@@ -102,10 +101,6 @@ export class WorldScene extends Phaser.Scene {
       const mailbox = this.add.sprite(world.mailboxes[side], groundY, 'mail-6')
         .setOrigin(0.5, 42 / 44).setScale(2);
       this.mailboxes.set(side, mailbox);
-      this.mailFlags.set(side, this.add.text(world.mailboxes[side], groundY - 86, '✉', {
-        fontFamily: 'GameFont, monospace', fontSize: '22px', color: '#fff0ae',
-        stroke: '#653d35', strokeThickness: 3,
-      }).setOrigin(0.5).setVisible(false));
       const prefix = `${side}-false`;
       const sprite = this.add.sprite(world.desks[side], groundY, `${prefix}-1`)
         .setOrigin(0.5, 47 / 64).setScale(2).setDepth(5).setAlpha(0.35);
@@ -229,9 +224,6 @@ export class WorldScene extends Phaser.Scene {
     const partner = this.players.find(player => player.side !== own.side)!;
     this.remote.push({ time: performance.now(), player: partner });
     if (this.remote.length > 20) this.remote.shift();
-    this.ui.setStatus(`${own.side === 'left' ? 'Left' : 'Right'} home · ${
-      own.carrying ? 'Postcard in backpack' : own.unread ? 'You have mail' : partner.connected ? 'Together here' : 'Waiting for your other half'
-    }`);
   }
 
   interact(): void {
@@ -311,7 +303,6 @@ export class WorldScene extends Phaser.Scene {
       if (action !== 'land' || sprite.anims.currentAnim?.key !== animation) sprite.play(animation, true);
       // Use the physics clock so a repeated jump doesn't cut the landing clip short.
       if (action === 'land') sprite.anims.setProgress(1 - landingTicks / world.landingTicks);
-      this.mailFlags.get(player.side)!.setVisible(player.unread > 0);
     }
     this.followPlayer();
     this.updateHint();

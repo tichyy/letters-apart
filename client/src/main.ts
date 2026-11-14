@@ -11,7 +11,7 @@ await font.load()
   .catch(error => console.warn('Font failed to load', error));
 
 const ui = new UI(message => connection.send(message), side => connection.connect(side), () => scene.interact());
-const connection = new Connection(receive, status => ui.disconnected(status));
+const connection = new Connection(receive, () => ui.disconnected());
 const scene = new WorldScene(connection, ui);
 
 new Phaser.Game({

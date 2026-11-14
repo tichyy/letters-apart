@@ -5,7 +5,6 @@ export class UI {
   jumpRequested = false;
   jumpHeld = false;
   private panel = document.createElement('dialog');
-  private status: HTMLElement;
   private hint: HTMLButtonElement;
   private notice: HTMLElement;
   private toastTimer?: number;
@@ -19,16 +18,13 @@ export class UI {
   ) {
     const root = document.querySelector<HTMLElement>('#interface')!;
     root.innerHTML = `
-      <div class="hud"><span id="status" role="status"></span></div>
       <div id="notice" role="status" aria-live="polite"></div>
-      <div class="bottom"><span class="keyboard-help">A / D or ← / → to walk · Space to jump · E to interact</span>
-      <button id="interact" class="interaction" hidden></button></div>
+      <div class="bottom"><button id="interact" class="interaction" hidden></button></div>
       <div class="touch-controls" aria-label="Movement controls">
         <button data-direction="-1" aria-label="Walk left">←</button>
         <button data-direction="1" aria-label="Walk right">→</button>
         <button id="jump" aria-label="Jump">↑</button>
       </div>`;
-    this.status = root.querySelector('#status')!;
     this.hint = root.querySelector('#interact')!;
     this.notice = root.querySelector('#notice')!;
     root.append(this.panel);
@@ -83,8 +79,6 @@ export class UI {
     this.jumpRequested = false;
     this.jumpHeld = false;
   }
-
-  setStatus(text: string): void { this.status.textContent = text; }
 
   setHint(text: string): void {
     this.hint.hidden = !text;
@@ -306,8 +300,7 @@ export class UI {
     else this.toast(text);
   }
 
-  disconnected(text: string): void {
-    this.setStatus(text);
+  disconnected(): void {
     if (this.submitting) this.error('Connection interrupted. Your draft is saved.');
   }
 
