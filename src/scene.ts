@@ -100,7 +100,7 @@ export class WorldScene extends Phaser.Scene {
     for (const side of sides) {
       this.add.image(world.desks[side], groundY, `house-${side}`).setOrigin(0.5, 1).setScale(6);
       const mailbox = this.add.sprite(world.mailboxes[side], groundY, 'mail-6')
-        .setOrigin(0.5, 42 / 44).setScale(1.7);
+        .setOrigin(0.5, 42 / 44).setDisplaySize(75, 75);
       this.mailboxes.set(side, mailbox);
       this.mailFlags.set(side, this.add.text(world.mailboxes[side], groundY - 86, '✉', {
         fontFamily: 'monospace', fontSize: '22px', color: '#fff0ae',
@@ -168,22 +168,28 @@ export class WorldScene extends Phaser.Scene {
     const zoom = width / world.viewWidth;
     const visibleHeight = height / zoom;
     const top = -visibleHeight * 0.66;
-    this.cameras.main.setZoom(zoom).setScroll(0, top);
+    this.cameras.main.setRoundPixels(false).setZoom(zoom).setScroll(0, top);
     this.cameras.main.scrollY = top + (visibleHeight - height) / 2;
     this.background.setY(top).setDisplaySize(world.viewWidth, visibleHeight);
     this.soil.setSize(world.width, Math.max(12, visibleHeight * 0.34));
+    // Draw parallax at screen resolution to avoid resampling it twice.
+    for (const { sprite } of this.scenery) {
+      sprite.setSize(width, Math.ceil(540 * zoom)).setScale(1 / zoom).setTileScale(3 * zoom);
+    }
     this.followPlayer();
   }
 
   private followPlayer(): void {
     const center = Phaser.Math.Clamp(this.local.x, world.viewWidth / 2, world.width - world.viewWidth / 2);
-    this.cameras.main.scrollX = center - this.scale.width / 2;
-    const left = center - world.viewWidth / 2;
+    const camera = this.cameras.main;
+    // Snap in screen pixels; world-pixel rounding shimmers at fractional zoom.
+    camera.scrollX = Math.round((center - this.scale.width / 2) * camera.zoom) / camera.zoom;
+    const left = camera.scrollX + (this.scale.width - world.viewWidth) / 2;
     this.background.setX(left);
     // Cover only the viewport, scrolling each pattern at its own depth.
     for (const { sprite, speed } of this.scenery) {
       sprite.setX(left);
-      sprite.tilePositionX = left * speed / sprite.tileScaleX;
+      sprite.tilePositionX = Math.round(left * speed * camera.zoom) / sprite.tileScaleX;
     }
   }
 
