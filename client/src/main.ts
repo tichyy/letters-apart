@@ -5,6 +5,11 @@ import { UI } from './ui';
 import type { Message, Side } from './protocol';
 import './style.css';
 
+const font = new FontFace('GameFont', 'url("/font.ttf")');
+await font.load()
+  .then(font => document.fonts.add(font))
+  .catch(error => console.warn('Font failed to load', error));
+
 const ui = new UI(message => connection.send(message), side => connection.connect(side), () => scene.interact());
 const connection = new Connection(receive, status => ui.disconnected(status));
 const scene = new WorldScene(connection, ui);

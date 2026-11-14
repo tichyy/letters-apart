@@ -51,7 +51,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.font('GameFont', '/font.ttf');
     for (const layer of ['Sky', 'Clouds', 'Bushes', 'Trees', 'Ground']) {
       this.load.image(layer, `/background/bg_Autumn/Layers/${layer}.png`);
     }
