@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  test:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -20,8 +20,13 @@ jobs:
           version: '0.13.8'
           python-version: '3.14'
 
-      - name: Test backend
-        run: uv run --locked pytest -q
+      - run: uv run --locked pytest -q
 
-      - name: Build app
-        run: docker compose build
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: docker compose build
