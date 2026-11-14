@@ -169,16 +169,19 @@ export class WorldScene extends Phaser.Scene {
     if (!cssWidth || !cssHeight) return;
     const pixelRatio = window.devicePixelRatio || 1;
     // Enlarge a small canvas by whole device pixels, even at fractional browser zoom.
-    const zoom = Math.max(1, Math.round(Math.max(1, Math.floor(cssHeight / 540)) * pixelRatio));
+    const zoom = Math.max(1, Math.round(pixelRatio));
     const width = Math.ceil(cssWidth * pixelRatio / zoom);
     const height = Math.ceil(cssHeight * pixelRatio / zoom);
     this.scale.setZoom(zoom / pixelRatio).resize(width, height);
-    const top = -Math.round(height * 0.66);
-    this.cameras.main.setOrigin(0, 0).setRoundPixels(false).setScroll(0, top);
-    this.background.setY(top).setDisplaySize(width, height);
-    this.soil.setSize(world.width, Math.max(12, height * 0.34));
+    const camera = this.cameras.main.setOrigin(0, 0).setRoundPixels(false).setZoom(1.5);
+    const visibleWidth = width / camera.zoom;
+    const visibleHeight = height / camera.zoom;
+    const top = -Math.round(height * 0.66) / camera.zoom;
+    camera.setScroll(0, top);
+    this.background.setY(top).setDisplaySize(visibleWidth, visibleHeight);
+    this.soil.setSize(world.width, Math.max(12, visibleHeight * 0.34));
     for (const { sprite } of this.scenery) {
-      sprite.setSize(width, 540);
+      sprite.setSize(width, Math.ceil(540 * camera.zoom)).setScale(1 / camera.zoom).setTileScale(3 * camera.zoom);
     }
     this.followPlayer();
   }
