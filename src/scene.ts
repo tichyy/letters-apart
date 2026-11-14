@@ -51,6 +51,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   preload(): void {
+    this.load.font('GameFont', '/font.ttf');
     for (const layer of ['Sky', 'Clouds', 'Bushes', 'Trees', 'Ground']) {
       this.load.image(layer, `/background/bg_Autumn/Layers/${layer}.png`);
     }
@@ -100,10 +101,10 @@ export class WorldScene extends Phaser.Scene {
     for (const side of sides) {
       this.add.image(world.desks[side], groundY, `house-${side}`).setOrigin(0.5, 1).setScale(6);
       const mailbox = this.add.sprite(world.mailboxes[side], groundY, 'mail-6')
-        .setOrigin(0.5, 42 / 44).setDisplaySize(75, 75);
+        .setOrigin(0.5, 42 / 44).setScale(2);
       this.mailboxes.set(side, mailbox);
       this.mailFlags.set(side, this.add.text(world.mailboxes[side], groundY - 86, '✉', {
-        fontFamily: 'monospace', fontSize: '22px', color: '#fff0ae',
+        fontFamily: 'GameFont, monospace', fontSize: '22px', color: '#fff0ae',
         stroke: '#653d35', strokeThickness: 3,
       }).setOrigin(0.5).setVisible(false));
       const prefix = `${side}-false`;
@@ -165,12 +166,14 @@ export class WorldScene extends Phaser.Scene {
 
   private resize(): void {
     const { width, height } = this.scale;
-    const zoom = width / world.viewWidth;
+    // Keep pixels whole; narrow screens show less of the world.
+    const zoom = Math.max(1, Math.floor(height / 540));
+    const visibleWidth = width / zoom;
     const visibleHeight = height / zoom;
-    const top = -visibleHeight * 0.66;
+    const top = -Math.round(height * 0.66) / zoom;
     this.cameras.main.setRoundPixels(false).setZoom(zoom).setScroll(0, top);
     this.cameras.main.scrollY = top + (visibleHeight - height) / 2;
-    this.background.setY(top).setDisplaySize(world.viewWidth, visibleHeight);
+    this.background.setY(top).setDisplaySize(visibleWidth, visibleHeight);
     this.soil.setSize(world.width, Math.max(12, visibleHeight * 0.34));
     // Draw parallax at screen resolution to avoid resampling it twice.
     for (const { sprite } of this.scenery) {
@@ -180,11 +183,13 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private followPlayer(): void {
-    const center = Phaser.Math.Clamp(this.local.x, world.viewWidth / 2, world.width - world.viewWidth / 2);
     const camera = this.cameras.main;
-    // Snap in screen pixels; world-pixel rounding shimmers at fractional zoom.
+    const visibleWidth = this.scale.width / camera.zoom;
+    const halfWidth = Math.min(visibleWidth, world.width) / 2;
+    const center = Phaser.Math.Clamp(this.local.x, halfWidth, world.width - halfWidth);
+    // Align camera movement to screen pixels.
     camera.scrollX = Math.round((center - this.scale.width / 2) * camera.zoom) / camera.zoom;
-    const left = camera.scrollX + (this.scale.width - world.viewWidth) / 2;
+    const left = camera.scrollX + (this.scale.width - visibleWidth) / 2;
     this.background.setX(left);
     // Cover only the viewport, scrolling each pattern at its own depth.
     for (const { sprite, speed } of this.scenery) {

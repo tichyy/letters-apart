@@ -27,6 +27,8 @@ class Store:
             self.db.execute(
                 "ALTER TABLE postcards ADD COLUMN stamp INTEGER NOT NULL DEFAULT 1 CHECK (stamp BETWEEN 1 AND 3)"
             )
+        if "title" not in {row["name"] for row in self.db.execute("PRAGMA table_info(postcards)")}:
+            self.db.execute("ALTER TABLE postcards ADD COLUMN title TEXT NOT NULL DEFAULT ''")
         self.db.commit()
 
     def summary(self, side: str) -> dict:
@@ -41,10 +43,11 @@ class Store:
         ).fetchone()[0]
         return {"carrying": bool(carrying), "unread": unread}
 
-    def write(self, side: str, body: str, stamp: int = 1) -> None:
+    def write(self, side: str, body: str, stamp: int = 1, title: str = "") -> None:
         with self.db:
             self.db.execute(
-                "INSERT INTO postcards(sender, body, stamp) VALUES (?, ?, ?)", (side, body, stamp)
+                "INSERT INTO postcards(sender, body, stamp, title) VALUES (?, ?, ?, ?)",
+                (side, body, stamp, title),
             )
 
     def deliver(self, side: str) -> None:
@@ -55,21 +58,22 @@ class Store:
                 (side,),
             )
 
-    def read(self, side: str) -> dict | None:
-        # Read oldest unread first; once caught up, allow rereading the latest card.
-        row = self.db.execute(
-            """SELECT * FROM postcards WHERE sender != ? AND delivered_at IS NOT NULL
-               ORDER BY (read_at IS NULL) DESC,
-                        CASE WHEN read_at IS NULL THEN id END ASC, id DESC LIMIT 1""",
+    def inbox(self, side: str) -> list[dict]:
+        rows = self.db.execute(
+            """SELECT id, title, body, delivered_at AS date, stamp FROM postcards
+               WHERE sender != ? AND delivered_at IS NOT NULL AND read_at IS NULL
+               ORDER BY id""",
             (side,),
-        ).fetchone()
-        if row is None:
-            return None
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_read(self, side: str, postcard_id: int) -> None:
         with self.db:
             self.db.execute(
-                "UPDATE postcards SET read_at = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],)
+                """UPDATE postcards SET read_at = CURRENT_TIMESTAMP
+                   WHERE id = ? AND sender != ? AND delivered_at IS NOT NULL AND read_at IS NULL""",
+                (postcard_id, side),
             )
-        return {"body": row["body"], "date": row["delivered_at"], "stamp": row["stamp"]}
 
     def close(self) -> None:
         self.db.close()

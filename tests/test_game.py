@@ -33,7 +33,7 @@ def deliver(game, side):
     return game.handle(side, {"type": "interact"})
 
 
-def test_postcard_round_trip_and_persistence(game):
+def test_postcard_round_trip_and_persistence(game, tmp_path):
     assert write(game, "left", "  See you soon. ♥  ") == {"type": "written"}
     assert game.mail["left"]["carrying"]
     # Snapshots expose the backpack, never the private message.
@@ -45,10 +45,14 @@ def test_postcard_round_trip_and_persistence(game):
     # Recreate the world against the same journal, as after a server restart.
     restarted = Game(game.store)
     restarted.players["right"].x = WORLD["mailboxes"]["right"]
-    postcard = restarted.handle("right", {"type": "interact"})
+    postcard = restarted.handle("right", {"type": "interact"})["postcards"][0]
     assert postcard["body"] == "See you soon. ♥"
+    assert restarted.mail["right"]["unread"] == 1
+    restarted.handle("right", {"type": "read", "id": postcard["id"]})
     assert restarted.mail["right"]["unread"] == 0
-    assert restarted.handle("right", {"type": "interact"})["body"] == postcard["body"]
+    assert restarted.handle("right", {"type": "interact"}) is None
+    with closing(Store(tmp_path / "postcards.sqlite3")) as store:
+        assert store.inbox("right") == []
 
 
 def test_writing_requires_own_desk_and_one_carried_card(game):
@@ -67,9 +71,25 @@ def test_selected_stamp_survives_delivery_and_restart(game, tmp_path, stamp):
     game.handle("left", {"type": "write", "body": "See you soon.", "stamp": stamp})
     deliver(game, "left")
     with closing(Store(tmp_path / "postcards.sqlite3")) as store:
-        card = store.read("right")
+        card = store.inbox("right")[0]
         assert card["body"] == "See you soon."
         assert card["stamp"] == stamp
+
+
+def test_title_survives_delivery_and_restart(game, tmp_path):
+    game.handle("left", {"type": "write", "title": "  Hello from home  ", "body": "Thinking of you."})
+    deliver(game, "left")
+    with closing(Store(tmp_path / "postcards.sqlite3")) as store:
+        card = store.inbox("right")[0]
+        assert card["title"] == "Hello from home"
+        assert card["body"] == "Thinking of you."
+
+
+@pytest.mark.parametrize("title", [None, True, [], "a" * 61, "Two\nlines", "Two\rlines"])
+def test_invalid_title_is_not_saved(game, title):
+    with pytest.raises(ValueError, match="title"):
+        game.handle("left", {"type": "write", "title": title, "body": "Hello"})
+    assert not game.mail["left"]["carrying"]
 
 
 @pytest.mark.parametrize("stamp", [0, 4, "2", True, None])
@@ -90,9 +110,10 @@ def test_existing_postcards_get_default_stamp(tmp_path):
             VALUES ('left', 'An older postcard.', CURRENT_TIMESTAMP)""")
         db.commit()
     with closing(Store(path)) as store:
-        card = store.read("right")
+        card = store.inbox("right")[0]
         assert card["body"] == "An older postcard."
         assert card["stamp"] == 1
+        assert card["title"] == ""
 
 
 @pytest.mark.parametrize("body", [None, [], "", " \n ", "a" * 1001])
@@ -118,16 +139,48 @@ def test_delivery_requires_correct_location_and_cannot_repeat(game):
     assert game.mail["right"]["unread"] == 1
 
 
-def test_mail_is_read_oldest_unread_first(game):
+def test_mailbox_lists_unread_cards_oldest_first_and_keeps_unseen_cards(game):
     for body in ["First", "Second"]:
         write(game, "right", body)
         deliver(game, "right")
     game.players["left"].x = WORLD["mailboxes"]["left"]
-    assert game.handle("left", {"type": "interact"})["body"] == "First"
+    cards = game.handle("left", {"type": "interact"})["postcards"]
+    assert [card["body"] for card in cards] == ["First", "Second"]
+    assert game.mail["left"]["unread"] == 2
+    game.handle("left", {"type": "read", "id": cards[0]["id"]})
     assert game.mail["left"]["unread"] == 1
-    assert game.handle("left", {"type": "interact"})["body"] == "Second"
+    assert [card["body"] for card in game.handle("left", {"type": "interact"})["postcards"]] == ["Second"]
+    game.handle("left", {"type": "read", "id": cards[1]["id"]})
     assert game.mail["left"]["unread"] == 0
-    assert game.handle("left", {"type": "interact"})["body"] == "Second"
+    assert game.handle("left", {"type": "interact"}) is None
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_read_markers_only_affect_delivered_mail_for_the_recipient(game, side):
+    other = "right" if side == "left" else "left"
+    write(game, other, "Private incoming card.")
+    deliver(game, other)
+    incoming = game.store.inbox(side)[0]
+    game.handle(other, {"type": "read", "id": incoming["id"]})
+    assert game.mail[side]["unread"] == 1
+    assert game.store.inbox(side) == [incoming]
+
+    write(game, other, "Not delivered yet.")
+    carried_id = game.store.db.execute("SELECT id FROM postcards WHERE delivered_at IS NULL").fetchone()[0]
+    game.handle(side, {"type": "read", "id": carried_id})
+    assert game.store.db.execute("SELECT read_at FROM postcards WHERE id = ?", (carried_id,)).fetchone()[0] is None
+    game.handle(side, {"type": "read", "id": incoming["id"]})
+    assert game.mail[side]["unread"] == 0
+    game.handle(side, {"type": "read", "id": incoming["id"]})
+    assert game.mail[side]["unread"] == 0
+    deliver(game, other)
+    assert [card["body"] for card in game.store.inbox(side)] == ["Not delivered yet."]
+
+
+@pytest.mark.parametrize("postcard_id", [None, True, "1", 0, -1, []])
+def test_invalid_read_marker_is_rejected(game, postcard_id):
+    with pytest.raises(ValueError, match="Invalid postcard"):
+        game.handle("left", {"type": "read", "id": postcard_id})
 
 
 @pytest.mark.parametrize("side", ["left", "right"])
@@ -165,7 +218,9 @@ def test_mailbox_checks_and_delivery_animate_for_both_players_without_moving_the
 
     for messages in events.values():
         messages.clear()
-    assert game.handle(side, {"type": "interact"})["body"] == "A postcard for you."
+    card = game.handle(side, {"type": "interact"})["postcards"][0]
+    assert card["body"] == "A postcard for you."
+    game.handle(side, {"type": "read", "id": card["id"]})
     assert all(messages == [used] for messages in events.values())
     assert (owner.x, owner.y) == position
     assert game.mail[side]["unread"] == 0

@@ -171,18 +171,29 @@ class Game:
             self.stop(side)
             return None
 
+        if kind == "read":
+            postcard_id = message.get("id")
+            if type(postcard_id) is not int or postcard_id < 1:
+                raise ValueError("Invalid postcard.")
+            self.store.mark_read(side, postcard_id)
+            self.refresh_mail()
+            return None
+
         if kind == "write":
             body = message.get("body")
+            title = message.get("title", "")
             stamp = message.get("stamp", 1)
             if not isinstance(body, str) or not 1 <= len(body.strip()) <= 1000:
                 raise ValueError("Write a message between 1 and 1,000 characters.")
+            if not isinstance(title, str) or len(title.strip()) > 60 or "\n" in title or "\r" in title:
+                raise ValueError("Keep the title to one line and at most 60 characters.")
             if type(stamp) is not int or stamp not in (1, 2, 3):
                 raise ValueError("Choose one of the three stamps.")
             if not self.nearby(side, WORLD["desks"][side]):
                 raise ValueError("Return to your desk to write a postcard.")
             if self.mail[side]["carrying"]:
                 raise ValueError("Deliver the postcard in your backpack first.")
-            self.store.write(side, body.strip(), stamp)
+            self.store.write(side, body.strip(), stamp, title.strip())
             self.refresh_mail()
             return {"type": "written"}
 
@@ -202,9 +213,8 @@ class Game:
                 return None
             if self.nearby(side, WORLD["mailboxes"][side]):
                 self.use_mailbox(side)
-                card = self.store.read(side)
-                self.refresh_mail()
-                return {"type": "postcard", **card} if card else None
+                cards = self.store.inbox(side)
+                return {"type": "mailbox", "postcards": cards} if cards else None
             return None
 
         raise ValueError("Unknown action.")
