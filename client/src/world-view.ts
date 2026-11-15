@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import world from '../../world.json';
 import type { Direction, Motion, Player, Side } from './protocol';
+import { createRepeatingLayer, type RepeatingLayer } from './repeating-layer';
 import { Viewport, type ViewLayout } from './viewport';
 
 const sides: Side[] = ['left', 'right'];
@@ -11,8 +12,8 @@ export class WorldView {
   private mailboxes = new Map<Side, Phaser.GameObjects.Sprite>();
   private remote: { time: number; player: Player }[] = [];
   private background!: Phaser.GameObjects.Image;
-  private soil!: Phaser.GameObjects.TileSprite;
-  private scenery: { sprite: Phaser.GameObjects.TileSprite; speed: number }[] = [];
+  private soil!: RepeatingLayer;
+  private scenery: { layer: RepeatingLayer; speed: number }[] = [];
 
   constructor(private scene: Phaser.Scene) {}
 
@@ -38,19 +39,17 @@ export class WorldView {
   }
 
   create(playerX: () => number): void {
-    this.background = this.scene.add.image(0, 0, 'Sky').setOrigin(0);
-    for (const [layer, speed] of [['Clouds', 0.15], ['Bushes', 0.4], ['Trees', 0.7]] as const) {
-      const texture = layer === 'Bushes' ? this.mirroredTexture(layer) : layer;
-      const sprite = this.scene.add.tileSprite(0, -477, world.viewWidth, 540, texture).setOrigin(0).setTileScale(3);
-      this.scenery.push({ sprite, speed });
+    this.background = this.scene.add.image(0, 0, 'Sky').setOrigin(0).setDepth(-4);
+    for (const [name, speed, depth] of [['Clouds', 0.15, -3], ['Bushes', 0.4, -2], ['Trees', 0.7, -1]] as const) {
+      const texture = name === 'Bushes' ? this.mirroredTexture(name) : name;
+      const layer = createRepeatingLayer(this.scene, { texture, y: -477, depth });
+      this.scenery.push({ layer, speed });
     }
     // The first background layer is foreground grass, overlapping feet and mailbox posts.
-    const ground = this.scene.add.tileSprite(0, -483, world.viewWidth, 540, this.mirroredTexture('Ground'))
-      .setOrigin(0).setTileScale(3).setDepth(8);
-    this.scenery.push({ sprite: ground, speed: 1 });
+    const ground = createRepeatingLayer(this.scene, { texture: this.mirroredTexture('Ground'), y: -483, depth: 8 });
+    this.scenery.push({ layer: ground, speed: 1 });
     this.scene.textures.get('Ground-repeat').add('soil', 0, 0, 168, 640, 12);
-    this.soil = this.scene.add.tileSprite(0, 55, world.width, 1000, 'Ground-repeat', 'soil')
-      .setOrigin(0).setTileScale(3).setDepth(8);
+    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground-repeat', frame: 'soil', y: 55, depth: 9 });
 
     const trees = this.scene.textures.get('Trees');
     trees.add('foreground-small', 0, 61, 95, 75, 69);
@@ -115,11 +114,9 @@ export class WorldView {
     // the sky differently on each axis in portrait and landscape.
     const skyScale = Math.max(3, Math.ceil(visibleWidth / this.background.width), Math.ceil(visibleHeight / this.background.height));
     this.background.setY(top).setScale(skyScale);
-    this.soil.setSize(world.width, Math.ceil(Math.max(12, visibleHeight * 0.34)));
-    for (const { sprite } of this.scenery) {
-      // Tile canvases contain artwork at its integer scale; only the shared
-      // camera transforms them, just as it does the houses and players.
-      sprite.setSize(Math.ceil(visibleWidth), 540).setTileScale(3);
+    this.soil.resize(visibleWidth, Math.max(12, visibleHeight * 0.34));
+    for (const { layer } of this.scenery) {
+      layer.resize(visibleWidth, 540);
     }
     this.followPlayer(playerX);
   }
@@ -134,10 +131,11 @@ export class WorldView {
     camera.scrollX = left;
     this.background.setX(left);
     // Cover only the viewport, scrolling each pattern at its own depth.
-    for (const { sprite, speed } of this.scenery) {
-      sprite.setX(left);
-      sprite.tilePositionX = Math.round(left * speed * camera.zoom) / (camera.zoom * sprite.tileScaleX);
+    for (const { layer, speed } of this.scenery) {
+      const offset = Math.round(left * speed * camera.zoom) / camera.zoom;
+      layer.scroll(left, offset);
     }
+    this.soil.scroll(left, left);
   }
 
   recordPartner(player: Player, reset: boolean): void {
