@@ -22,17 +22,23 @@ export class UI {
         <div class="touch-controls" aria-label="Movement controls">
           <div class="movement-controls">
             <button type="button" data-control="left" aria-label="Walk left">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4 6 12l8 8v-5h6V9h-6z"/></svg>
+              <span class="control-art" aria-hidden="true"></span>
             </button>
             <button type="button" data-control="right" aria-label="Walk right">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 4 8 8-8 8v-5H4V9h6z"/></svg>
+              <span class="control-art" aria-hidden="true"></span>
             </button>
           </div>
           <button type="button" data-control="jump" aria-label="Jump">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4 8 8h-5v8H9v-8H4z"/></svg>
+            <span class="control-art" aria-hidden="true"></span>
           </button>
         </div>
       </div>`;
+    if (matchMedia('(any-pointer: coarse)').matches) {
+      for (const action of ['left', 'right', 'jump']) {
+        const pressed = new Image();
+        pressed.src = `/ui/controls_${action}2.png`;
+      }
+    }
     this.gameplay = root.querySelector('#gameplay')!;
     this.hint = root.querySelector('#interact')!;
     this.notice = root.querySelector('#notice')!;

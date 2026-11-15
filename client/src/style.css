@@ -168,12 +168,22 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size:
   }
   .movement-controls { display: flex; gap: 12px; }
   .touch-controls button {
-    display: grid; place-items: center; width: 64px; height: 64px; padding: 14px;
-    border: 1px solid #e3bc8870; background: #392c27d9; color: #fff1d6;
+    display: grid; place-items: center; width: 64px; height: 64px; padding: 0;
+    border: 0; border-radius: 0; background: transparent; box-shadow: none;
     touch-action: none; -webkit-tap-highlight-color: transparent;
   }
-  .touch-controls svg { width: 100%; height: 100%; fill: currentColor; pointer-events: none; }
-  .touch-controls button[data-held] { background: #80563b; }
+  /* Crop each 13px control from its shared 128px canvas at a crisp 4x scale.
+     Keep both animation states in the same crop so the press offset is visible. */
+  .control-art {
+    width: 52px; height: 52px; background-repeat: no-repeat; background-size: 512px 512px;
+    image-rendering: pixelated; pointer-events: none;
+  }
+  [data-control="left"] .control-art { background-image: url('/ui/controls_left1.png'); background-position: -200px -228px; }
+  [data-control="right"] .control-art { background-image: url('/ui/controls_right1.png'); background-position: -260px -228px; }
+  [data-control="jump"] .control-art { background-image: url('/ui/controls_jump1.png'); background-position: -232px -228px; }
+  [data-control="left"][data-held] .control-art { background-image: url('/ui/controls_left2.png'); }
+  [data-control="right"][data-held] .control-art { background-image: url('/ui/controls_right2.png'); }
+  [data-control="jump"][data-held] .control-art { background-image: url('/ui/controls_jump2.png'); }
   .bottom {
     left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
     bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);
