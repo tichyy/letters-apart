@@ -1,55 +1,57 @@
+import { KeyboardControls } from './keyboard-controls';
+import { TouchControls } from './touch-controls';
 import type { Direction } from './protocol';
 import type { UI } from './ui';
 
-const jumpKeys = ['Space', 'ArrowUp', 'KeyW'];
-const gameKeys = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', ...jumpKeys];
-
 export class Controls {
-  private keys = new Set<string>();
+  private keyboard: KeyboardControls;
+  private touch: TouchControls;
 
-  constructor(private ui: UI) {}
+  constructor(private ui: UI) {
+    this.keyboard = new KeyboardControls(() => this.blocked, () => ui.interact());
+    this.touch = new TouchControls(ui.gameplay, () => this.blocked);
+  }
+
+  private get blocked(): boolean { return this.ui.blocked || document.hidden; }
 
   attach(stop: () => void, resetClock: () => void): () => void {
-    const keydown = (event: KeyboardEvent) => {
-      if (this.ui.blocked) return;
-      if (gameKeys.includes(event.code)) event.preventDefault();
-      this.keys.add(event.code);
-      if (jumpKeys.includes(event.code) && !event.repeat) this.ui.jumpRequested = true;
-      if (event.code === 'KeyE' && !event.repeat) this.ui.interact();
-    };
-    const keyup = (event: KeyboardEvent) => this.keys.delete(event.code);
-    const visibilitychange = () => {
+    const detachKeyboard = this.keyboard.attach();
+    const detachTouch = this.touch.attach();
+    const detachDialog = this.ui.onDialogChange(() => {
+      this.release();
+      if (this.ui.blocked) stop();
+    });
+    const controller = new AbortController();
+    const options = { signal: controller.signal };
+    window.addEventListener('blur', stop, options);
+    window.addEventListener('pagehide', stop, options);
+    document.addEventListener('visibilitychange', () => {
       if (document.hidden) stop();
       resetClock();
-    };
-    window.addEventListener('keydown', keydown);
-    window.addEventListener('keyup', keyup);
-    window.addEventListener('blur', stop);
-    document.addEventListener('visibilitychange', visibilitychange);
+    }, options);
     return () => {
-      window.removeEventListener('keydown', keydown);
-      window.removeEventListener('keyup', keyup);
-      window.removeEventListener('blur', stop);
-      document.removeEventListener('visibilitychange', visibilitychange);
+      controller.abort();
+      detachDialog();
+      detachKeyboard();
+      detachTouch();
     };
   }
 
   direction(): Direction {
-    if (this.ui.blocked || document.hidden) return 0;
-    const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA') || this.ui.direction === -1;
-    const right = this.keys.has('ArrowRight') || this.keys.has('KeyD') || this.ui.direction === 1;
+    if (this.blocked) return 0;
+    const left = this.keyboard.left || this.touch.left;
+    const right = this.keyboard.right || this.touch.right;
     return left === right ? 0 : left ? -1 : 1;
   }
 
   jump(): boolean {
-    const jump = this.ui.jumpRequested || this.ui.jumpHeld
-      || jumpKeys.some(key => this.keys.has(key));
-    this.ui.jumpRequested = false;
-    return !this.ui.blocked && jump;
+    const keyboard = this.keyboard.jump();
+    const touch = this.touch.jump();
+    return !this.blocked && (keyboard || touch);
   }
 
   release(): void {
-    this.keys.clear();
-    this.ui.releaseControls();
+    this.keyboard.release();
+    this.touch.release();
   }
 }

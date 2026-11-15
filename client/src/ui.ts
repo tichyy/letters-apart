@@ -1,14 +1,12 @@
-import type { Direction, Postcard, Side, Stamp } from './protocol';
+import type { Postcard, Side, Stamp } from './protocol';
 
 export class UI {
-  direction: Direction = 0;
-  jumpRequested = false;
-  jumpHeld = false;
+  readonly gameplay: HTMLElement;
   private panel = document.createElement('dialog');
   private hint: HTMLButtonElement;
   private notice: HTMLElement;
   private toastTimer?: number;
-  private held = new Set<Direction>();
+  private events = new EventTarget();
   private submitting = false;
 
   constructor(
@@ -19,29 +17,31 @@ export class UI {
     const root = document.querySelector<HTMLElement>('#interface')!;
     root.innerHTML = `
       <div id="notice" role="status" aria-live="polite"></div>
-      <div class="bottom"><button id="interact" class="interaction" hidden></button></div>
-      <div class="touch-controls" aria-label="Movement controls">
-        <button data-direction="-1" aria-label="Walk left">←</button>
-        <button data-direction="1" aria-label="Walk right">→</button>
-        <button id="jump" aria-label="Jump">↑</button>
+      <div id="gameplay">
+        <div class="bottom"><button id="interact" class="interaction" hidden></button></div>
+        <div class="touch-controls" aria-label="Movement controls">
+          <div class="movement-controls">
+            <button type="button" data-control="left" aria-label="Walk left">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4 6 12l8 8v-5h6V9h-6z"/></svg>
+            </button>
+            <button type="button" data-control="right" aria-label="Walk right">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 4 8 8-8 8v-5H4V9h6z"/></svg>
+            </button>
+          </div>
+          <button type="button" data-control="jump" aria-label="Jump">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4 8 8h-5v8H9v-8H4z"/></svg>
+          </button>
+        </div>
       </div>`;
+    this.gameplay = root.querySelector('#gameplay')!;
     this.hint = root.querySelector('#interact')!;
     this.notice = root.querySelector('#notice')!;
     root.append(this.panel);
     this.hint.onclick = () => this.interact();
-    const jump = root.querySelector<HTMLButtonElement>('#jump')!;
-    jump.onpointerdown = event => {
-      if (this.blocked) return;
-      event.preventDefault();
-      jump.setPointerCapture(event.pointerId);
-      this.jumpRequested = true;
-      this.jumpHeld = true;
-    };
-    const releaseJump = () => { this.jumpHeld = false; };
-    jump.onpointerup = releaseJump;
-    jump.onpointercancel = releaseJump;
-    jump.onlostpointercapture = releaseJump;
-    this.panel.addEventListener('close', () => { this.submitting = false; });
+    this.panel.addEventListener('close', () => {
+      this.submitting = false;
+      this.syncGameplay();
+    });
     this.panel.addEventListener('cancel', event => {
       if (this.submitting || this.panel.dataset.kind === 'home') event.preventDefault();
     });
@@ -50,39 +50,23 @@ export class UI {
         this.panel.close();
       }
     });
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-direction]')) {
-      const direction = Number(button.dataset.direction) as Direction;
-      button.onpointerdown = event => {
-        if (this.blocked) return;
-        event.preventDefault();
-        button.setPointerCapture(event.pointerId);
-        this.held.add(direction);
-        this.updateDirection();
-      };
-      const release = () => { this.held.delete(direction); this.updateDirection(); };
-      button.onpointerup = release;
-      button.onpointercancel = release;
-      button.onlostpointercapture = release;
-    }
-    window.addEventListener('blur', () => this.releaseControls());
   }
 
   get blocked(): boolean { return this.panel.open; }
 
-  private updateDirection(): void {
-    this.direction = this.held.size === 1 ? [...this.held][0] : 0;
+  onDialogChange(listener: () => void): () => void {
+    this.events.addEventListener('dialogchange', listener);
+    return () => this.events.removeEventListener('dialogchange', listener);
   }
 
-  releaseControls(): void {
-    this.held.clear();
-    this.direction = 0;
-    this.jumpRequested = false;
-    this.jumpHeld = false;
+  private syncGameplay(): void {
+    this.gameplay.hidden = this.blocked;
+    this.events.dispatchEvent(new Event('dialogchange'));
   }
 
   setHint(text: string): void {
     this.hint.hidden = !text;
-    this.hint.textContent = matchMedia('(pointer: coarse)').matches ? text.replace(/^E · /, '') : text;
+    this.hint.textContent = matchMedia('(any-pointer: coarse)').matches ? text.replace(/^E · /, '') : text;
   }
 
   interact(): void {
@@ -305,10 +289,10 @@ export class UI {
   }
 
   private open(kind: string, html: string): void {
-    this.releaseControls();
     if (this.panel.open) this.panel.close();
     this.panel.dataset.kind = kind;
     this.panel.innerHTML = html;
     this.panel.showModal();
+    this.syncGameplay();
   }
 }

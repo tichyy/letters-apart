@@ -9,10 +9,17 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; overscroll-behavior: none; }
-#game, #interface { position: fixed; inset: 0; }
-#game { touch-action: none; overflow: hidden; }
+#game { position: fixed; inset: 0; touch-action: none; overflow: hidden; }
 canvas { display: block; image-rendering: pixelated; }
-#interface { pointer-events: none; }
+#interface {
+  position: fixed; left: var(--viewport-left, 0px); top: var(--viewport-top, 0px);
+  width: var(--viewport-width, 100vw); height: var(--viewport-height, 100dvh);
+  pointer-events: none;
+}
+#gameplay {
+  position: absolute; inset: 0;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
 button, input, textarea, dialog { pointer-events: auto; font: inherit; }
 button { cursor: pointer; }
 button:focus-visible, textarea:focus-visible { outline: 3px solid #cf8c48; outline-offset: 4px; }
@@ -38,7 +45,12 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .touch-controls { display: none; }
 
 dialog {
-  width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
+  position: fixed; inset: auto; margin: 0;
+  left: calc(var(--viewport-left, 0px) + var(--viewport-width, 100vw) / 2);
+  top: calc(var(--viewport-top, 0px) + var(--viewport-height, 100dvh) / 2);
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(var(--viewport-width, 100vw) - 32px));
+  max-height: calc(var(--viewport-height, 100dvh) - 32px);
   overflow-y: auto; padding: 32px; border: 2px solid #a77b54;
   background: #f8ecd4; color: #513e35; box-shadow: 7px 7px 0 #312f3066;
 }
@@ -55,12 +67,17 @@ dialog[data-kind="home"] button:hover { background: #8e6247; }
 .home-choices button { flex: 1; }
 .small { color: #947862; }
 dialog:is([data-kind="compose"], [data-kind="postcard"]) {
-  width: min(636px, calc(100vw - 32px), calc((100dvh - 96px) * 106 / 83));
+  width: min(636px, calc(var(--viewport-width, 100vw) - 32px));
   max-width: none; max-height: none; padding: 0; border: 0;
   background: transparent; box-shadow: none; overflow: visible;
 }
+/* Keep the editor's text size stable while the keyboard opens. The dialog can
+   scroll within the visible area without rescaling the card or the world. */
+dialog[data-kind="compose"] {
+  max-height: calc(var(--viewport-height, 100dvh) - 32px); overflow-y: auto;
+}
 dialog[data-kind="postcard"] {
-  width: min(636px, calc(100vw - 32px), calc((100dvh - 32px) * 106 / 101));
+  width: min(636px, calc(var(--viewport-width, 100vw) - 32px), calc((var(--viewport-height, 100dvh) - 32px) * 106 / 101));
 }
 .postcard-editor { margin: 0; -webkit-tap-highlight-color: transparent; }
 .postcard-stage { position: relative; aspect-ratio: 106 / 83; overflow: hidden; container-type: inline-size; }
@@ -78,6 +95,7 @@ dialog[data-kind="postcard"] {
 .postcard-title { top: 15.6627%; height: 12.0482%; }
 .postcard-message { top: 38.5542%; height: 50.6024%; }
 .postcard-title:focus-visible, .postcard-message:focus-visible { outline: none; }
+dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size: max(16px, 5cqw); }
 .postcard-editor button {
   padding: 0; border: 0; border-radius: 0; box-shadow: none;
   background-color: transparent; background-repeat: no-repeat; image-rendering: pixelated;
@@ -142,12 +160,25 @@ dialog[data-kind="postcard"] {
 #form-error { margin: 12px 0 0; color: #fff1d6; text-align: center; }
 #form-error:empty { display: none; }
 
-@media (pointer: coarse) {
-  .touch-controls { position: absolute; bottom: max(22px, env(safe-area-inset-bottom)); left: max(22px, env(safe-area-inset-left)); display: flex; gap: 12px; }
-  .touch-controls button { width: 62px; height: 56px; border: 1px solid #e3bc8870; background: #392c27d9; color: #fff1d6; font-size: 25px; touch-action: none; user-select: none; }
-  .touch-controls button:active { background: #80563b; }
-  .bottom { left: auto; right: max(22px, env(safe-area-inset-right)); max-width: calc(100vw - 260px); bottom: max(22px, env(safe-area-inset-bottom)); }
-  .interaction { min-height: 56px; max-width: 250px; }
+@media (any-pointer: coarse) {
+  .touch-controls {
+    position: absolute; bottom: max(20px, env(safe-area-inset-bottom));
+    left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
+    display: flex; justify-content: space-between; align-items: end;
+  }
+  .movement-controls { display: flex; gap: 12px; }
+  .touch-controls button {
+    display: grid; place-items: center; width: 64px; height: 64px; padding: 14px;
+    border: 1px solid #e3bc8870; background: #392c27d9; color: #fff1d6;
+    touch-action: none; -webkit-tap-highlight-color: transparent;
+  }
+  .touch-controls svg { width: 100%; height: 100%; fill: currentColor; pointer-events: none; }
+  .touch-controls button[data-held] { background: #80563b; }
+  .bottom {
+    left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
+    bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);
+  }
+  .interaction { min-height: 48px; max-width: 100%; font-size: 26px; }
 }
 
 @media (max-width: 600px) {

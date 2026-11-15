@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import world from '../../world.json';
 import type { Direction, Motion, Player, Side } from './protocol';
+import { Viewport, type ViewLayout } from './viewport';
 
 const sides: Side[] = ['left', 'right'];
 const groundY = 12;
@@ -86,21 +87,8 @@ export class WorldView {
       sprite.play(`${prefix}-idle`).setFlipX(side === 'right');
     }
 
-    // Observe layout and pixel density separately: zoom can change either one.
-    let density: MediaQueryList | undefined;
-    const resize = () => {
-      this.resize(playerX());
-      density?.removeEventListener('change', resize);
-      density = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-      density.addEventListener('change', resize);
-    };
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(document.querySelector('#game')!);
-    this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      observer.disconnect();
-      density?.removeEventListener('change', resize);
-    });
+    const viewport = new Viewport(this.scene, layout => this.resize(layout, playerX()));
+    this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, viewport.attach());
   }
 
   private mirroredTexture(key: string): string {
@@ -108,6 +96,7 @@ export class WorldView {
     const source = this.scene.textures.get(key).getSourceImage() as HTMLImageElement;
     const texture = this.scene.textures.createCanvas(`${key}-repeat`, source.width * 2, source.height)!;
     const context = texture.context;
+    context.imageSmoothingEnabled = false;
     context.drawImage(source, 0, 0);
     context.translate(source.width * 2, 0);
     context.scale(-1, 1);
@@ -116,24 +105,21 @@ export class WorldView {
     return texture.key;
   }
 
-  private resize(playerX: number): void {
-    const { width: cssWidth, height: cssHeight } = document.querySelector('#game')!.getBoundingClientRect();
-    if (!cssWidth || !cssHeight) return;
-    const pixelRatio = window.devicePixelRatio || 1;
-    // Enlarge a small canvas by whole device pixels, even at fractional browser zoom.
-    const zoom = Math.max(1, Math.round(pixelRatio));
-    const width = Math.ceil(cssWidth * pixelRatio / zoom);
-    const height = Math.ceil(cssHeight * pixelRatio / zoom);
-    this.scene.scale.setZoom(zoom / pixelRatio).resize(width, height);
-    const camera = this.scene.cameras.main.setOrigin(0, 0).setRoundPixels(false).setZoom(1.5);
+  private resize({ width, height, cameraZoom }: ViewLayout, playerX: number): void {
+    const camera = this.scene.cameras.main.setOrigin(0, 0).setRoundPixels(false).setZoom(cameraZoom);
     const visibleWidth = width / camera.zoom;
     const visibleHeight = height / camera.zoom;
     const top = -Math.round(height * 0.66) / camera.zoom;
     camera.setScroll(0, top);
-    this.background.setY(top).setDisplaySize(visibleWidth, visibleHeight);
-    this.soil.setSize(world.width, Math.max(12, visibleHeight * 0.34));
+    // Cover the view using uniform, whole-pixel scaling instead of stretching
+    // the sky differently on each axis in portrait and landscape.
+    const skyScale = Math.max(3, Math.ceil(visibleWidth / this.background.width), Math.ceil(visibleHeight / this.background.height));
+    this.background.setY(top).setScale(skyScale);
+    this.soil.setSize(world.width, Math.ceil(Math.max(12, visibleHeight * 0.34)));
     for (const { sprite } of this.scenery) {
-      sprite.setSize(width, Math.ceil(540 * camera.zoom)).setScale(1 / camera.zoom).setTileScale(3 * camera.zoom);
+      // Tile canvases contain artwork at its integer scale; only the shared
+      // camera transforms them, just as it does the houses and players.
+      sprite.setSize(Math.ceil(visibleWidth), 540).setTileScale(3);
     }
     this.followPlayer(playerX);
   }
@@ -150,7 +136,7 @@ export class WorldView {
     // Cover only the viewport, scrolling each pattern at its own depth.
     for (const { sprite, speed } of this.scenery) {
       sprite.setX(left);
-      sprite.tilePositionX = Math.round(left * speed * camera.zoom) / sprite.tileScaleX;
+      sprite.tilePositionX = Math.round(left * speed * camera.zoom) / (camera.zoom * sprite.tileScaleX);
     }
   }
 
