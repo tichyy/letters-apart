@@ -1,4 +1,8 @@
 :root {
+  --cursor-pointer: url('/ui/hand_pointer.png') 5 2, default;
+  --cursor-hover: url('/ui/hand_hover.png') 5 2, pointer;
+  --cursor-grab: url('/ui/hand_grab.png') 5 2, grabbing;
+  cursor: var(--cursor-pointer);
   font-family: 'GameFont', monospace;
   font-size: 32px;
   color: #fff1d6;
@@ -10,6 +14,11 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; overscroll-behavior: none; }
+body:active, body:has(:active) {
+  --cursor-pointer: var(--cursor-grab);
+  --cursor-hover: var(--cursor-grab);
+  cursor: var(--cursor-grab);
+}
 #game { position: fixed; inset: 0; touch-action: none; overflow: hidden; }
 canvas { display: block; image-rendering: pixelated; }
 #interface {
@@ -21,10 +30,10 @@ canvas { display: block; image-rendering: pixelated; }
   position: absolute; inset: 0;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
-button, input, textarea, dialog { pointer-events: auto; font: inherit; }
-button { cursor: pointer; }
+button, input, textarea, dialog { pointer-events: auto; font: inherit; cursor: var(--cursor-pointer); }
+button { cursor: var(--cursor-hover); }
 button:focus-visible, textarea:focus-visible { outline: 3px solid #cf8c48; outline-offset: 4px; }
-button:disabled { opacity: 0.6; cursor: wait; }
+button:disabled { opacity: 0.6; cursor: var(--cursor-pointer); }
 [hidden] { display: none !important; }
 
 #notice {
@@ -51,7 +60,7 @@ dialog {
   overflow-y: auto; padding: 32px; border: 2px solid #a77b54;
   background: #f8ecd4; color: #513e35; box-shadow: 7px 7px 0 #312f3066;
 }
-dialog::backdrop { background: #122e3f80; }
+dialog::backdrop { cursor: var(--cursor-pointer); background: #122e3f80; }
 .eyebrow { margin: 0 0 14px; letter-spacing: 2px; color: #98704b; }
 h1 { font-weight: 400; font-size: 48px; margin: 0 0 18px; }
 dialog p { line-height: 1; }
@@ -97,10 +106,10 @@ dialog[data-kind="postcard"] .postcard-editor[data-side="front"]:not(.has-card):
     2.298851% 73.4375%, 1.149425% 73.4375%, 1.149425% 23.4375%, 0 23.4375%);
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
-dialog[data-kind="compose"] .postcard-photo { touch-action: none; cursor: pointer; }
+dialog[data-kind="compose"] .postcard-photo { touch-action: none; cursor: var(--cursor-hover); }
 .postcard-photo.has-photo { background: #f7f1e5; }
-.postcard-photo.is-editable { cursor: grab; }
-.postcard-photo.is-editable:active { cursor: grabbing; }
+.postcard-photo.is-editable { cursor: var(--cursor-hover); }
+.postcard-photo.is-editable:active { cursor: var(--cursor-grab); }
 .postcard-photo img { position: absolute; max-width: none; pointer-events: none; image-rendering: auto; }
 .postcard-photo:focus-visible { outline: 3px solid #cf8c48; outline-offset: -4px; }
 .postcard-photo-status {
@@ -117,7 +126,7 @@ dialog[data-kind="compose"] .postcard-photo-status { top: auto; bottom: 0; width
 .postcard-title { top: 15.6627%; height: 12.0482%; font-size: 6cqw; }
 .postcard-message { top: 38.5542%; height: 50.6024%; }
 .postcard-title:focus-visible, .postcard-message:focus-visible { outline: none; }
-dialog[data-kind="postcard"] :is(.postcard-title, .postcard-message) { caret-color: transparent; cursor: default; }
+dialog[data-kind="postcard"] :is(.postcard-title, .postcard-message) { caret-color: transparent; cursor: var(--cursor-pointer); }
 dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size: max(16px, 5cqw); }
 dialog[data-kind="compose"] .postcard-title { font-size: max(16px, 6cqw); }
 dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder {
@@ -151,7 +160,7 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
 }
 .postcard-delete { background-image: url('/ui/button_delete1.png'); }
 .postcard-delete:disabled { opacity: 1; }
-.postcard-pack:disabled, .postcard-reset:disabled, .postcard-delete:disabled { cursor: default; }
+.postcard-pack:disabled, .postcard-reset:disabled, .postcard-delete:disabled { cursor: var(--cursor-pointer); }
 .postcard-turn:focus-visible { background-image: url('/ui/button_rotate2.png'); outline: none; }
 .postcard-pack:enabled:focus-visible { background-image: url('/ui/button_send2.png'); outline: none; }
 .postcard-delete:enabled:focus-visible { background-image: url('/ui/button_delete2.png'); outline: none; }
@@ -178,7 +187,7 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
   position: absolute; top: 16.6667%; width: 13.2075%; height: 83.3333%;
   background-size: 914.2857% 853.3333%; background-position: 43.8596% 82.3009%;
 }
-.postcard-navigation button:disabled { cursor: default; }
+.postcard-navigation button:disabled { cursor: var(--cursor-pointer); }
 .postcard-previous { left: 32.0755%; background-image: url('/ui/button_left1.png'); }
 .postcard-navigation .postcard-next {
   left: 45.2830%; background-image: url('/ui/button_right1.png'); background-position: 56.1404% 82.3009%;
@@ -201,9 +210,10 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
 .postcard-editor[data-side="front"] .postcard-stamps { visibility: hidden; }
 .postcard-stamps input {
   appearance: none; width: 48px; height: 45px; margin: 0; border: 0; border-radius: 0; background-color: transparent;
-  opacity: 0.5; cursor: pointer; pointer-events: auto;
+  opacity: 0.5; cursor: var(--cursor-hover); pointer-events: auto;
 }
 .postcard-stamps input:is(:checked, :hover, :focus-visible) { opacity: 1; }
+.postcard-stamps input:disabled { cursor: var(--cursor-pointer); }
 #form-error { margin: 12px 0 0; color: #fff1d6; text-align: center; }
 #form-error:empty { display: none; }
 

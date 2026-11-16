@@ -14,10 +14,14 @@ export class WorldView {
   private background!: Phaser.GameObjects.Image;
   private soil!: RepeatingLayer;
   private scenery: { layer: RepeatingLayer; speed: number }[] = [];
+  private cursorLayout = '';
 
   constructor(private scene: Phaser.Scene) {}
 
   preload(onLoadError: () => void): void {
+    for (const name of ['pointer', 'hover', 'grab']) {
+      this.scene.load.image(`cursor-${name}`, `/ui/hand_${name}.png`);
+    }
     for (const layer of ['Sky', 'Clouds', 'Bushes', 'Trees', 'Ground']) {
       this.scene.load.image(layer, `/background/bg_Autumn/Layers/${layer}.png`);
     }
@@ -105,6 +109,7 @@ export class WorldView {
   }
 
   private resize({ width, height, cameraZoom }: ViewLayout, playerX: number): void {
+    this.resizeCursors(2 * cameraZoom);
     const camera = this.scene.cameras.main.setOrigin(0, 0).setRoundPixels(false).setZoom(cameraZoom);
     const visibleWidth = width / camera.zoom;
     const visibleHeight = height / camera.zoom;
@@ -119,6 +124,27 @@ export class WorldView {
       layer.resize(visibleWidth, 540);
     }
     this.followPlayer(playerX);
+  }
+
+  private resizeCursors(scale: number): void {
+    const density = window.devicePixelRatio || 1;
+    const layout = `${scale}:${density}`;
+    if (layout === this.cursorLayout) return;
+    this.cursorLayout = layout;
+    // Match the world's physical pixel grid and prevent native cursor resampling.
+    const pixelScale = scale * Math.max(1, Math.round(density));
+    const logicalScale = pixelScale / density;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d')!;
+    for (const [name, fallback] of [['pointer', 'default'], ['hover', 'pointer'], ['grab', 'grabbing']]) {
+      const source = this.scene.textures.get(`cursor-${name}`).getSourceImage() as HTMLImageElement;
+      canvas.width = source.width * pixelScale;
+      canvas.height = source.height * pixelScale;
+      context.imageSmoothingEnabled = false;
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      document.documentElement.style.setProperty(`--cursor-${name}`,
+        `image-set(url("${canvas.toDataURL()}") ${density}x) ${5 * logicalScale} ${2 * logicalScale}, ${fallback}`);
+    }
   }
 
   followPlayer(playerX: number): void {
