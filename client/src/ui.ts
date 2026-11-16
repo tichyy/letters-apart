@@ -74,13 +74,8 @@ export class UI {
     this.notice = root.querySelector('#notice')!;
     root.append(this.panel);
     this.hint.onclick = () => this.interact();
-    this.galleryButton.onclick = () => {
-      if (this.blocked) return;
-      this.galleryFromEnd = false;
-      this.galleryFront = true;
-      this.galleryIndex = 0;
-      this.requestInteraction('gallery');
-    };
+    this.galleryButton.textContent = matchMedia('(any-pointer: coarse)').matches ? 'Received postcards' : 'F · Received postcards';
+    this.galleryButton.onclick = () => this.openLibrary();
     this.panel.addEventListener('close', () => {
       if (this.panel.open) return;
       this.caretCleanup?.();
@@ -120,6 +115,14 @@ export class UI {
   }
 
   setGalleryAvailable(available: boolean): void { this.galleryButton.hidden = !available; }
+
+  openLibrary(): void {
+    if (this.blocked || this.galleryButton.hidden) return;
+    this.galleryFromEnd = false;
+    this.galleryFront = true;
+    this.galleryIndex = 0;
+    this.requestInteraction('gallery');
+  }
 
   interact(): void {
     if (!this.blocked) this.requestInteraction();

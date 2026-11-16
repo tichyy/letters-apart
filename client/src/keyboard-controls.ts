@@ -1,11 +1,11 @@
 const jumpKeys = ['Space', 'ArrowUp', 'KeyW'];
-const gameKeys = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', ...jumpKeys];
+const gameKeys = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', 'KeyF', ...jumpKeys];
 
 export class KeyboardControls {
   private keys = new Set<string>();
   private jumpRequested = false;
 
-  constructor(private blocked: () => boolean, private interact: () => void) {}
+  constructor(private blocked: () => boolean, private interact: () => void, private openLibrary: () => void) {}
 
   attach(): () => void {
     const controller = new AbortController();
@@ -17,6 +17,7 @@ export class KeyboardControls {
       this.keys.add(event.code);
       if (jumpKeys.includes(event.code) && !event.repeat) this.jumpRequested = true;
       if (event.code === 'KeyE' && !event.repeat) this.interact();
+      if (event.code === 'KeyF' && !event.repeat) this.openLibrary();
     }, options);
     window.addEventListener('keyup', event => this.keys.delete(event.code), options);
     return () => {

@@ -8,7 +8,7 @@ export class Controls {
   private touch: TouchControls;
 
   constructor(private ui: UI) {
-    this.keyboard = new KeyboardControls(() => this.blocked, () => ui.interact());
+    this.keyboard = new KeyboardControls(() => this.blocked, () => ui.interact(), () => ui.openLibrary());
     this.touch = new TouchControls(ui.gameplay, () => this.blocked);
   }
 
