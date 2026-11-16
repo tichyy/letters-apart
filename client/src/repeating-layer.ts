@@ -15,29 +15,8 @@ export interface RepeatingLayer {
 }
 
 export function createRepeatingLayer(scene: Phaser.Scene, options: LayerOptions): RepeatingLayer {
-  // Phaser also recognizes iPads that advertise a desktop-style user agent.
-  // iOS avoids CanvasPattern scaling; other platforms retain TileSprite.
-  return scene.sys.game.device.os.iOS
-    ? new ImageLayer(scene, options)
-    : new TileSpriteLayer(scene, options);
-}
-
-class TileSpriteLayer implements RepeatingLayer {
-  private sprite: Phaser.GameObjects.TileSprite;
-
-  constructor(scene: Phaser.Scene, { texture, frame = '__BASE', y, depth }: LayerOptions) {
-    this.sprite = scene.add.tileSprite(0, y, 1, 1, texture, frame)
-      .setOrigin(0).setTileScale(artworkScale).setDepth(depth);
-  }
-
-  resize(width: number, height: number): void {
-    this.sprite.setSize(Math.ceil(width), Math.ceil(height));
-  }
-
-  scroll(left: number, offset: number): void {
-    this.sprite.setX(left);
-    this.sprite.tilePositionX = offset / artworkScale;
-  }
+  // Draw directly to the camera canvas to avoid rounding in an intermediate TileSprite canvas.
+  return new ImageLayer(scene, options);
 }
 
 class ImageLayer implements RepeatingLayer {
