@@ -221,10 +221,11 @@ export class UI {
     const photo = this.photo = new PhotoEditor(form, this.connection, () => {});
     const previous = form.querySelector<HTMLButtonElement>('.postcard-previous')!;
     const next = form.querySelector<HTMLButtonElement>('.postcard-next')!;
-    let index = 0;
+    let index = -1;
     const show = (target: number) => {
+      if (!this.panel.open) return;
       const card = cards[target];
-      if (!this.send({ type: 'read', id: card.id })) {
+      if (index >= 0 && !this.send({ type: 'read', id: cards[index].id })) {
         this.panel.close();
         this.error('Connection lost. Reopen your mailbox when connected.');
         return;
@@ -243,6 +244,13 @@ export class UI {
     };
     previous.onclick = () => show(index - 1);
     next.onclick = () => show(index + 1);
+    this.panel.onclose = () => {
+      if (this.panel.open) return;
+      if (this.panel.dataset.kind === 'postcard' && index >= 0) {
+        this.send({ type: 'read', id: cards[index].id });
+      }
+      this.panel.onclose = null;
+    };
     show(0);
   }
 

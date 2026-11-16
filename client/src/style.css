@@ -118,6 +118,7 @@ dialog[data-kind="compose"] .postcard-photo-status { top: auto; bottom: 0; width
 .postcard-title { top: 15.6627%; height: 12.0482%; }
 .postcard-message { top: 38.5542%; height: 50.6024%; }
 .postcard-title:focus-visible, .postcard-message:focus-visible { outline: none; }
+dialog[data-kind="postcard"] :is(.postcard-title, .postcard-message) { caret-color: transparent; cursor: default; }
 dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size: max(16px, 5cqw); }
 .postcard-editor button {
   padding: 0; border: 0; border-radius: 0; box-shadow: none;
