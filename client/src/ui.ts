@@ -1,4 +1,12 @@
-import type { Postcard, Side, Stamp } from './protocol';
+import type { Postcard, Side, Stamp, Crop } from './protocol';
+import { Connection, randomId } from './connection';
+import { PhotoEditor } from './photo-editor';
+
+interface PendingWrite {
+  side: Side;
+  message: { type: 'write'; requestId: string; title: string; body: string; stamp: number;
+    imageId: string | null; crop: Crop };
+}
 
 export class UI {
   readonly gameplay: HTMLElement;
@@ -8,11 +16,17 @@ export class UI {
   private toastTimer?: number;
   private events = new EventTarget();
   private submitting = false;
+  private photo?: PhotoEditor;
+  private pending?: PendingWrite;
+  private side?: Side;
+  private updateCompose?: () => void;
+  private get photoDraftKey(): string { return `letters-draft-photo-${this.side}`; }
 
   constructor(
     private readonly send: (message: object) => boolean,
     private readonly join: (side: Side) => void,
     private readonly requestInteraction: () => void,
+    private readonly connection: Connection,
   ) {
     const root = document.querySelector<HTMLElement>('#interface')!;
     root.innerHTML = `
@@ -45,6 +59,10 @@ export class UI {
     root.append(this.panel);
     this.hint.onclick = () => this.interact();
     this.panel.addEventListener('close', () => {
+      if (this.panel.open) return;
+      this.photo?.dispose();
+      this.photo = undefined;
+      this.updateCompose = undefined;
       this.submitting = false;
       this.syncGameplay();
     });
@@ -125,47 +143,82 @@ export class UI {
         preview.style.backgroundImage = '';
         sessionStorage.removeItem('letters-draft-stamp');
       }
-      pack.disabled = this.submitting || !textarea.value.trim() || !selected;
+      pack.disabled = this.submitting || !photo.ready || !textarea.value.trim() || !selected;
       reset.disabled = this.submitting;
+      title.readOnly = textarea.readOnly = this.submitting;
+      for (const input of form.querySelectorAll<HTMLInputElement>('[name="stamp"]')) input.disabled = this.submitting;
+      photo.locked = this.submitting;
+      photo.render();
     };
+    const photo = this.photo = new PhotoEditor(form, this.connection, update, this.photoDraftKey);
+    this.updateCompose = update;
+    this.submitting = !!this.pending;
     update();
+    photo.restore();
     form.oninput = update;
     form.addEventListener('compositionend', update);
     form.onreset = event => {
       event.preventDefault();
       if (this.submitting) return;
-      title.value = '';
-      textarea.value = '';
-      title.style.fontSize = textarea.style.fontSize = '';
-      for (const input of form.querySelectorAll<HTMLInputElement>('[name="stamp"]')) input.checked = false;
+      if (form.dataset.side === 'front') photo.reset();
+      else {
+        title.value = '';
+        textarea.value = '';
+        title.style.fontSize = textarea.style.fontSize = '';
+        for (const input of form.querySelectorAll<HTMLInputElement>('[name="stamp"]')) input.checked = false;
+      }
       form.querySelector('#form-error')!.textContent = '';
       update();
     };
     form.onsubmit = event => {
       event.preventDefault();
       const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
-      if (this.submitting || !textarea.value.trim() || !selected) return;
-      if (!this.send({ type: 'write', title: title.value.trim(), body: textarea.value.trim(), stamp: Number(selected.value) })) {
+      if (this.submitting || !photo.ready || !textarea.value.trim() || !selected || !this.side) return;
+      const pending: PendingWrite = { side: this.side, message: {
+        type: 'write', requestId: randomId(), title: title.value.trim(), body: textarea.value.trim(),
+        stamp: Number(selected.value), imageId: photo.photo?.id ?? null,
+        crop: photo.photo ? { ...photo.photo.crop } : { x: 0.5, y: 0.5, zoom: 1 },
+      } };
+      if (!this.send(pending.message)) {
         this.error('Connection lost. Your draft is saved; try again when connected.');
         return;
       }
+      this.pending = pending;
+      sessionStorage.setItem('letters-pending-write', JSON.stringify(pending));
       this.submitting = true;
       update();
     };
     if (!matchMedia('(pointer: coarse)').matches) textarea.focus();
   }
 
-  written(): void {
+  connected(side: Side): void {
+    this.side = side;
+    try {
+      const pending = JSON.parse(sessionStorage.getItem('letters-pending-write') ?? 'null') as PendingWrite | null;
+      this.pending = pending?.side === side ? pending : undefined;
+    } catch {
+      this.pending = undefined;
+      sessionStorage.removeItem('letters-pending-write');
+    }
+    if (this.pending) this.send(this.pending.message);
+  }
+
+  written(requestId?: string): void {
+    if (requestId && requestId !== this.pending?.message.requestId) return;
+    this.pending = undefined;
+    sessionStorage.removeItem('letters-pending-write');
     sessionStorage.removeItem('letters-draft');
     sessionStorage.removeItem('letters-draft-title');
     sessionStorage.removeItem('letters-draft-stamp');
-    this.panel.close();
+    sessionStorage.removeItem(this.photoDraftKey);
+    if (this.panel.dataset.kind === 'compose') this.panel.close();
     this.toast('Postcard packed. Deliver it to the other mailbox.');
   }
 
   read(cards: Postcard[]): void {
     if (!cards.length) return;
     const form = this.postcard(cards[0].body, cards[0].stamp, false);
+    const photo = this.photo = new PhotoEditor(form, this.connection, () => {});
     const previous = form.querySelector<HTMLButtonElement>('.postcard-previous')!;
     const next = form.querySelector<HTMLButtonElement>('.postcard-next')!;
     let index = 0;
@@ -177,6 +230,8 @@ export class UI {
         return;
       }
       index = target;
+      if (form.dataset.side === 'front') form.querySelector<HTMLButtonElement>('.postcard-turn')!.click();
+      void photo.show(card.image ?? null);
       form.querySelector<HTMLInputElement>('.postcard-title')!.value = card.title;
       form.querySelector('textarea')!.value = card.body;
       this.fitPostcardText(form);
@@ -196,6 +251,9 @@ export class UI {
       <form class="postcard-editor" data-side="back">
         <div class="postcard-stage">
           <img class="postcard-art" src="/ui/postcard1.png" alt="Postcard" draggable="false">
+          <div class="postcard-photo" role="group" aria-label="Postcard photo" hidden>
+            <img alt="Photo on the front of the postcard" draggable="false" hidden>
+          </div>
           <div class="postcard-back">
             <input class="postcard-title" name="title" aria-label="Postcard title"
               maxlength="60" autocomplete="off" ${writing ? '' : 'readonly'}>
@@ -205,9 +263,11 @@ export class UI {
               ${stamp ? `style="background-image: url('/ui/stamp${stamp}.png')"` : 'hidden'}></span>
           </div>
           <button type="button" class="postcard-turn" aria-label="Turn postcard over" aria-pressed="false"></button>
-          ${writing ? `<button type="reset" class="postcard-reset" aria-label="Reset postcard" title="Reset postcard"></button>
+          ${writing ? `<button type="reset" class="postcard-reset" aria-label="Reset message side" title="Reset message side"></button>
             <button type="submit" class="postcard-pack" aria-label="Put postcard in backpack" title="Put postcard in backpack" disabled></button>` : ''}
         </div>
+        <input class="postcard-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" hidden ${writing ? '' : 'disabled'}>
+        <p class="postcard-photo-status" role="status" aria-live="polite" hidden></p>
         ${writing ? `<div class="postcard-stamps" role="group" aria-label="Choose a stamp">
           ${([1, 2, 3] as const).map(value => `<input type="radio" name="stamp" value="${value}"
             aria-label="Stamp ${value}" required ${value === stamp ? 'checked' : ''}
@@ -225,6 +285,16 @@ export class UI {
       form.dataset.side = front ? 'front' : 'back';
       form.querySelector<HTMLImageElement>('.postcard-art')!.src = `/ui/postcard${front ? 2 : 1}.png`;
       form.querySelector<HTMLElement>('.postcard-back')!.hidden = front;
+      form.querySelector<HTMLElement>('.postcard-photo')!.hidden = !front;
+      form.querySelector<HTMLElement>('.postcard-photo-status')!.hidden = !front;
+      const stamps = form.querySelector<HTMLElement>('.postcard-stamps');
+      if (stamps) stamps.inert = front;
+      const reset = form.querySelector<HTMLButtonElement>('.postcard-reset');
+      if (reset) {
+        reset.setAttribute('aria-label', front ? 'Reset photo side' : 'Reset message side');
+        reset.title = front ? 'Reset photo side' : 'Reset message side';
+      }
+      this.photo?.render();
       if (!front) this.fitPostcardText(form);
       turn.setAttribute('aria-pressed', String(front));
     };
@@ -278,23 +348,33 @@ export class UI {
     field.addEventListener('compositionend', limit);
   }
 
-  error(text: string): void {
+  error(text: string, requestId?: string): void {
+    if (requestId && requestId !== this.pending?.message.requestId) return;
+    if (this.pending && !requestId) { this.toast(text); return; }
+    if (requestId) {
+      this.pending = undefined;
+      sessionStorage.removeItem('letters-pending-write');
+    }
     this.submitting = false;
     const submit = this.panel.querySelector<HTMLButtonElement>('[type="submit"]');
     if (submit) submit.disabled = !this.panel.querySelector('textarea')!.value.trim()
       || !this.panel.querySelector('[name="stamp"]:checked');
     const reset = this.panel.querySelector<HTMLButtonElement>('[type="reset"]');
     if (reset) reset.disabled = false;
+    this.updateCompose?.();
     const error = this.panel.querySelector('#form-error');
     if (this.panel.open && error) error.textContent = text;
     else this.toast(text);
   }
 
   disconnected(): void {
-    if (this.submitting) this.error('Connection interrupted. Your draft is saved.');
+    if (this.submitting) this.toast('Connection interrupted. Your postcard will retry when connected.');
   }
 
   private open(kind: string, html: string): void {
+    this.photo?.dispose();
+    this.photo = undefined;
+    this.updateCompose = undefined;
     if (this.panel.open) this.panel.close();
     this.panel.dataset.kind = kind;
     this.panel.innerHTML = html;

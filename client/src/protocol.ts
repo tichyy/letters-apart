@@ -2,12 +2,17 @@ export type Side = 'left' | 'right';
 export type Direction = -1 | 0 | 1;
 export type Stamp = 1 | 2 | 3;
 
+export interface Crop { x: number; y: number; zoom: number }
+export interface UploadedPhoto { id: string; width: number; height: number; expiresAt?: number }
+export interface Photo extends UploadedPhoto { crop: Crop }
+
 export interface Postcard {
   id: number;
   title: string;
   body: string;
   date: string;
   stamp: Stamp;
+  image: Photo | null;
 }
 
 export interface Input {
@@ -38,9 +43,9 @@ export type Message =
   | { type: 'welcome'; side: Side; players: Player[] }
   | { type: 'state'; players: Player[] }
   | { type: 'compose' }
-  | { type: 'written' }
+  | { type: 'written'; requestId?: string }
   | { type: 'mailbox'; postcards: Postcard[] }
   | { type: 'mailbox_used'; side: Side }
   | { type: 'delivered'; sender: Side; recipient: Side }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; requestId?: string }
   | { type: 'occupied' };

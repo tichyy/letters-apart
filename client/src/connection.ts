@@ -1,4 +1,12 @@
-import type { Message, Side } from './protocol';
+import type { Message, Side, UploadedPhoto } from './protocol';
+
+export function randomId(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export class HttpError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
 
 export class Connection {
   ready = false;
@@ -12,9 +20,7 @@ export class Connection {
     private readonly receive: (message: Message) => void,
     private readonly status: (text: string) => void,
   ) {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    this.token = sessionStorage.getItem('letters-token')
-      ?? Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    this.token = sessionStorage.getItem('letters-token') ?? randomId();
     sessionStorage.setItem('letters-token', this.token);
     // A mobile browser may retain a dead socket after switching networks.
     window.setInterval(() => {
@@ -64,5 +70,39 @@ export class Connection {
     if (!this.ready || this.socket?.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify(message));
     return true;
+  }
+
+  async uploadPhoto(file: File, id: string, signal: AbortSignal): Promise<UploadedPhoto> {
+    const response = await this.request('/api/images', {
+      method: 'POST', body: file, signal, headers: { 'X-Upload-ID': id },
+    });
+    return response.json();
+  }
+
+  async readPhoto(id: string, signal: AbortSignal): Promise<Blob> {
+    return (await this.request(`/api/images/${id}`, { signal })).blob();
+  }
+
+  async discardPhoto(id: string): Promise<void> {
+    await this.request(`/api/images/${id}`, { method: 'DELETE' });
+  }
+
+  private async request(path: string, options: RequestInit = {}): Promise<Response> {
+    if (!this.ready || !this.side) throw new Error('Reconnect to the game to use photos.');
+    const headers = new Headers(options.headers);
+    headers.set('Authorization', `Bearer ${this.token}`);
+    headers.set('X-Player-Side', this.side);
+    let response: Response;
+    try {
+      response = await fetch(path, { ...options, headers, cache: 'no-store' });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      throw new Error('Connection interrupted. Please try the photo again.');
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new HttpError(response.status, typeof body?.detail === 'string' ? body.detail : 'The photo could not be loaded. Please try again.');
+    }
+    return response;
   }
 }

@@ -10,8 +10,8 @@ await font.load()
   .then(font => document.fonts.add(font))
   .catch(error => console.warn('Font failed to load', error));
 
-const ui = new UI(message => connection.send(message), side => connection.connect(side), () => scene.interact());
 const connection = new Connection(receive, () => ui.disconnected());
+const ui = new UI(message => connection.send(message), side => connection.connect(side), () => scene.interact(), connection);
 const scene = new WorldScene(connection, ui);
 
 new Phaser.Game({
@@ -30,11 +30,12 @@ new Phaser.Game({
 function receive(message: Message): void {
   scene.receive(message);
   switch (message.type) {
+    case 'welcome': ui.connected(message.side); break;
     case 'compose': ui.compose(); break;
-    case 'written': ui.written(); break;
+    case 'written': ui.written(message.requestId); break;
     case 'mailbox': ui.read(message.postcards); break;
     case 'occupied': ui.chooseHome(true); break;
-    case 'error': ui.error(message.message); break;
+    case 'error': ui.error(message.message, message.requestId); break;
     case 'mailbox_used': scene.useMailbox(message.side); break;
     case 'delivered':
       ui.toast(message.sender === connection.side

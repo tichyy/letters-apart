@@ -15,26 +15,42 @@ from fastapi.staticfiles import StaticFiles
 
 from .game import Game, Peer, SIDES
 from .store import Store
+from .image_routes import ImageService, router as image_router
+from .images import ImageStorage, LocalImageStorage
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def create_app(database: Path | None = None) -> FastAPI:
+def create_app(database: Path | None = None, *, image_storage: ImageStorage | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        store = Store(database or Path(os.environ.get("POSTCARD_DB", ROOT / "data/postcards.sqlite3")))
+        database_path = database or Path(os.environ.get("POSTCARD_DB", ROOT / "data/postcards.sqlite3"))
+        store = Store(database_path)
         app.state.game = Game(store)
+        app.state.images = ImageService(
+            app.state.game,
+            image_storage if image_storage is not None else LocalImageStorage(
+                Path(os.environ.get("POSTCARD_IMAGES", database_path.parent / "postcard-images")),
+            ),
+            int(os.environ.get("POSTCARD_IMAGE_BUDGET", 256 * 1024 * 1024)),
+        )
+        await app.state.images.cleanup()
+        maintenance = asyncio.create_task(app.state.images.maintain())
         task = asyncio.create_task(app.state.game.run())
         try:
             yield
         finally:
             task.cancel()
+            maintenance.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+            with contextlib.suppress(asyncio.CancelledError):
+                await maintenance
             store.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
+    app.include_router(image_router)
 
     @app.websocket("/ws/{side}")
     async def connect(socket: WebSocket, side: str, token: str = ""):
@@ -69,15 +85,18 @@ def create_app(database: Path | None = None) -> FastAPI:
                 if len(raw) > 8192:
                     await socket.close(code=1009, reason="Message too large.")
                     return
+                message = None
                 try:
                     message = json.loads(raw)
                     if not isinstance(message, dict):
                         raise ValueError("Invalid message.")
-                    response = game.handle(side, message)
+                    response = game.handle(side, message, peer.token)
                     if response:
                         peer.send(response)
                 except ValueError as error:
-                    peer.send({"type": "error", "message": str(error)})
+                    peer.send({"type": "error", "message": str(error),
+                               **({"requestId": message["requestId"]} if isinstance(message, dict)
+                                  and isinstance(message.get("requestId"), str) else {})})
 
         reader = asyncio.create_task(receive())
         try:

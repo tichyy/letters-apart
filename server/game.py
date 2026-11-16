@@ -3,13 +3,15 @@
 import asyncio
 import json
 import math
+import hashlib
+import re
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import WebSocket
 
-from .store import Store
+from .store import Store, session_owner
 
 SIDES = ("left", "right")
 WORLD = json.loads((Path(__file__).resolve().parent.parent / "world.json").read_text())
@@ -140,7 +142,7 @@ class Game:
         for peer in self.peers.values():
             peer.send({"type": "mailbox_used", "side": side})
 
-    def handle(self, side: str, message: dict) -> dict | None:
+    def handle(self, side: str, message: dict, session_token: str | None = None) -> dict | None:
         kind = message.get("type")
         player = self.players[side]
         other = "right" if side == "left" else "left"
@@ -189,13 +191,39 @@ class Game:
                 raise ValueError("Keep the title to one line and at most 60 characters.")
             if type(stamp) is not int or stamp not in (1, 2, 3):
                 raise ValueError("Choose one of the three stamps.")
+            image_id = message.get("imageId")
+            if image_id is not None and (not isinstance(image_id, str)
+                                        or not re.fullmatch(r"[a-f0-9]{32}", image_id)):
+                raise ValueError("Invalid photo.")
+            crop = message.get("crop", {"x": 0.5, "y": 0.5, "zoom": 1})
+            if not isinstance(crop, dict) or any(
+                type(crop.get(key)) not in (int, float) or not lower <= crop[key] <= upper
+                or not math.isfinite(crop[key])
+                for key, lower, upper in (("x", 0, 1), ("y", 0, 1), ("zoom", 1, 5))
+            ):
+                raise ValueError("Invalid photo position or zoom.")
+            request_id = message.get("requestId")
+            if request_id is not None and (not isinstance(request_id, str)
+                                          or not re.fullmatch(r"[a-f0-9]{32}", request_id)):
+                raise ValueError("Invalid postcard request.")
+            if (image_id or request_id) and not session_token:
+                raise ValueError("Reconnect to the game to save this postcard.")
+            owner = session_owner(side, session_token) if session_token else None
+            payload_hash = hashlib.sha256(json.dumps(
+                [body.strip(), title.strip(), stamp, image_id, crop], sort_keys=True,
+            ).encode()).hexdigest()
+            acknowledgement = {"type": "written", **({"requestId": request_id} if request_id else {})}
+            if request_id and self.store.completed_write(owner, request_id, payload_hash):
+                return acknowledgement
             if not self.nearby(side, WORLD["desks"][side]):
                 raise ValueError("Return to your desk to write a postcard.")
             if self.mail[side]["carrying"]:
                 raise ValueError("Deliver the postcard in your backpack first.")
-            self.store.write(side, body.strip(), stamp, title.strip())
+            self.store.write(side, body.strip(), stamp, title.strip(), image_id=image_id,
+                             crop=(crop["x"], crop["y"], crop["zoom"]), owner=owner,
+                             request_id=request_id, payload_hash=payload_hash)
             self.refresh_mail()
-            return {"type": "written"}
+            return acknowledgement
 
         if kind == "interact":
             if self.nearby(side, WORLD["desks"][side]):

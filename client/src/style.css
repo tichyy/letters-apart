@@ -79,7 +79,7 @@ dialog[data-kind="compose"] {
 dialog[data-kind="postcard"] {
   width: min(636px, calc(var(--viewport-width, 100vw) - 32px), calc((var(--viewport-height, 100dvh) - 32px) * 106 / 101));
 }
-.postcard-editor { margin: 0; -webkit-tap-highlight-color: transparent; }
+.postcard-editor { position: relative; margin: 0; -webkit-tap-highlight-color: transparent; }
 .postcard-stage { position: relative; aspect-ratio: 106 / 83; overflow: hidden; container-type: inline-size; }
 /* Crop the shared 128px artwork canvas to the postcard and buttons. */
 .postcard-art {
@@ -87,6 +87,29 @@ dialog[data-kind="postcard"] {
   image-rendering: pixelated; pointer-events: none; user-select: none;
 }
 .postcard-back { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+/* Source artwork interior: x=21..107, y=21..84, inside the stepped pencil border.
+   The stage is the source rectangle x=16..121, y=7..89. */
+.postcard-photo {
+  position: absolute; z-index: 2; left: 4.716981%; top: 16.86747%;
+  width: 82.075472%; height: 77.108434%; overflow: hidden;
+  clip-path: polygon(0 0, 48.275862% 0, 48.275862% 1.5625%, 97.701149% 1.5625%,
+    97.701149% 25%, 98.850575% 25%, 98.850575% 75%, 100% 75%, 100% 100%,
+    50.574713% 100%, 50.574713% 98.4375%, 2.298851% 98.4375%,
+    2.298851% 73.4375%, 1.149425% 73.4375%, 1.149425% 23.4375%, 0 23.4375%);
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+dialog[data-kind="compose"] .postcard-photo { touch-action: none; cursor: pointer; }
+.postcard-photo.has-photo { background: #f7f1e5; }
+.postcard-photo.is-editable { cursor: grab; }
+.postcard-photo.is-editable:active { cursor: grabbing; }
+.postcard-photo img { position: absolute; max-width: none; pointer-events: none; image-rendering: auto; }
+.postcard-photo:focus-visible { outline: 3px solid #cf8c48; outline-offset: -4px; }
+.postcard-photo-status {
+  position: absolute; top: 100%; left: 0; right: 0;
+  margin: 8px 0 0; text-align: center; color: #fff1d6; font-size: 20px;
+}
+dialog[data-kind="compose"] .postcard-photo-status { top: auto; bottom: 0; width: 91.509434%; }
+.postcard-photo-status:empty { display: none; }
 .postcard-title, .postcard-message {
   position: absolute; left: 7.5472%; width: 38.6792%;
   padding: 0; margin: 0; border: 0; border-radius: 0; outline: none; resize: none;
@@ -151,7 +174,10 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size:
 .postcard-stamp {
   position: absolute; left: 68.8679%; top: 14.4578%; width: 15.0943%; height: 18.0723%;
 }
-.postcard-stamps { display: flex; justify-content: center; gap: 16px; margin-top: 8px; }
+/* Center under the paper; the stage also includes the send button to its right. */
+.postcard-stamps { display: flex; justify-content: center; width: 91.509434%; gap: 16px; margin-top: 8px; }
+/* Reserve the text side's footer space so centering the dialog never moves the card on a flip. */
+.postcard-editor[data-side="front"] .postcard-stamps { visibility: hidden; }
 .postcard-stamps input {
   appearance: none; width: 48px; height: 45px; margin: 0; border: 0; border-radius: 0; background-color: transparent;
   opacity: 0.5; cursor: pointer; pointer-events: auto;
