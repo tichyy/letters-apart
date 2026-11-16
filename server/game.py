@@ -14,6 +14,7 @@ from fastapi import WebSocket
 from .store import Store, session_owner
 
 SIDES = ("left", "right")
+GALLERY_PAGE_SIZE = 12
 WORLD = json.loads((Path(__file__).resolve().parent.parent / "world.json").read_text())
 
 
@@ -180,6 +181,27 @@ class Game:
             self.store.mark_read(side, postcard_id)
             self.refresh_mail()
             return None
+
+        if kind in ("gallery", "delete"):
+            if not self.nearby(side, WORLD["desks"][side]):
+                raise ValueError("Return to your home to browse received postcards.")
+            page = message.get("page", 0)
+            if type(page) is not int or not 0 <= page <= 2**31 - 1:
+                raise ValueError("Invalid gallery page.")
+            if kind == "delete":
+                postcard_id = message.get("id")
+                if type(postcard_id) is not int or postcard_id < 1:
+                    raise ValueError("Invalid postcard.")
+                self.store.delete(side, postcard_id)
+                self.refresh_mail()
+            cards = self.store.inbox(side, include_read=True, limit=GALLERY_PAGE_SIZE + 1,
+                                    offset=page * GALLERY_PAGE_SIZE)
+            if kind == "delete" and not cards and page > 0:
+                page -= 1
+                cards = self.store.inbox(side, include_read=True, limit=GALLERY_PAGE_SIZE + 1,
+                                        offset=page * GALLERY_PAGE_SIZE)
+            return {"type": "gallery", "postcards": cards[:GALLERY_PAGE_SIZE], "page": page,
+                    "hasMore": len(cards) > GALLERY_PAGE_SIZE}
 
         if kind == "write":
             body = message.get("body")

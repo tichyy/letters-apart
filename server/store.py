@@ -45,6 +45,7 @@ class Store:
         """)
         columns = {row["name"] for row in self.db.execute("PRAGMA table_info(postcards)")}
         for name, definition in {
+            "deleted_at": "TEXT",
             "image_id": "TEXT REFERENCES images(id)",
             "photo_x": "REAL NOT NULL DEFAULT 0.5",
             "photo_y": "REAL NOT NULL DEFAULT 0.5",
@@ -67,7 +68,7 @@ class Store:
         ).fetchone()
         unread = self.db.execute(
             """SELECT COUNT(*) FROM postcards
-               WHERE sender != ? AND delivered_at IS NOT NULL AND read_at IS NULL""",
+               WHERE sender != ? AND delivered_at IS NOT NULL AND read_at IS NULL AND deleted_at IS NULL""",
             (side,),
         ).fetchone()[0]
         return {"carrying": bool(carrying), "unread": unread}
@@ -110,14 +111,15 @@ class Store:
                 (side,),
             )
 
-    def inbox(self, side: str) -> list[dict]:
+    def inbox(self, side: str, *, include_read: bool = False, limit: int = -1, offset: int = 0) -> list[dict]:
         rows = self.db.execute(
-            """SELECT p.id, title, body, delivered_at AS date, stamp,
+            f"""SELECT p.id, title, body, delivered_at AS date, stamp,
                       image_id, i.width, i.height, photo_x, photo_y, photo_zoom
                FROM postcards p LEFT JOIN images i ON p.image_id = i.id
-               WHERE p.sender != ? AND delivered_at IS NOT NULL AND read_at IS NULL
-               ORDER BY p.id""",
-            (side,),
+               WHERE p.sender != ? AND delivered_at IS NOT NULL AND deleted_at IS NULL
+               {'' if include_read else 'AND read_at IS NULL'}
+               ORDER BY p.id {'DESC' if include_read else 'ASC'} LIMIT ? OFFSET ?""",
+            (side, limit, offset),
         ).fetchall()
         cards = []
         for row in rows:
@@ -138,7 +140,7 @@ class Store:
 
     def image_for(self, image_id: str, side: str, owner: str) -> dict | None:
         row = self.db.execute(
-            """SELECT i.*, p.id AS postcard_id, p.delivered_at
+            """SELECT i.*, p.id AS postcard_id, p.delivered_at, p.deleted_at
                FROM images i LEFT JOIN postcards p ON p.image_id = i.id WHERE i.id = ?""",
             (image_id,),
         ).fetchone()
@@ -146,7 +148,7 @@ class Store:
             pending = row["postcard_id"] is None
             if (pending and row["owner"] == owner and row["sender"] == side
                     and row["expires_at"] > time.time()) or (
-                    not pending and (row["sender"] == side or row["delivered_at"] is not None)):
+                    not pending and (row["sender"] == side or (row["delivered_at"] is not None and row["deleted_at"] is None))):
                 return dict(row)
         return None
 
@@ -184,7 +186,15 @@ class Store:
         with self.db:
             self.db.execute(
                 """UPDATE postcards SET read_at = CURRENT_TIMESTAMP
-                   WHERE id = ? AND sender != ? AND delivered_at IS NOT NULL AND read_at IS NULL""",
+                   WHERE id = ? AND sender != ? AND delivered_at IS NOT NULL AND read_at IS NULL AND deleted_at IS NULL""",
+                (postcard_id, side),
+            )
+
+    def delete(self, side: str, postcard_id: int) -> None:
+        with self.db:
+            self.db.execute(
+                """UPDATE postcards SET deleted_at = CURRENT_TIMESTAMP
+                   WHERE id = ? AND sender != ? AND delivered_at IS NOT NULL AND deleted_at IS NULL""",
                 (postcard_id, side),
             )
 

@@ -156,6 +156,109 @@ def test_mailbox_lists_unread_cards_oldest_first_and_keeps_unseen_cards(game):
 
 
 @pytest.mark.parametrize("side", ["left", "right"])
+def test_home_gallery_keeps_received_cards_after_reading_and_restart(game, tmp_path, side):
+    other = "right" if side == "left" else "left"
+    for body in ("First", "Second"):
+        write(game, other, body)
+        deliver(game, other)
+    first = game.store.inbox(side)[0]
+    game.handle(side, {"type": "read", "id": first["id"]})
+    write(game, side, "My outgoing postcard")
+    deliver(game, side)
+    write(game, other, "Still in the sender's backpack")
+    write(game, side, "I can browse while carrying my own card")
+    result = game.handle(side, {"type": "gallery"})
+    assert [card["body"] for card in result["postcards"]] == ["Second", "First"]
+    assert result["page"] == 0 and not result["hasMore"]
+    assert game.mail[side]["unread"] == 1
+    assert [card["body"] for card in game.store.inbox(side)] == ["Second"]
+    game.players[side].x = WORLD["desks"][other]
+    with pytest.raises(ValueError, match="your home"):
+        game.handle(side, {"type": "gallery"})
+    with closing(Store(tmp_path / "postcards.sqlite3")) as store:
+        restarted = Game(store)
+        assert restarted.handle(side, {"type": "gallery"}) == result
+
+
+def test_gallery_paginates_without_marking_unseen_postcards_read(game):
+    for index in range(15):
+        write(game, "right", f"Card {index}")
+        deliver(game, "right")
+    game.players["left"].x = WORLD["desks"]["left"]
+    first = game.handle("left", {"type": "gallery"})
+    second = game.handle("left", {"type": "gallery", "page": 1})
+    assert len(first["postcards"]) == 12 and first["hasMore"]
+    assert [card["body"] for card in second["postcards"]] == ["Card 2", "Card 1", "Card 0"]
+    assert not second["hasMore"] and second["page"] == 1
+    assert not {card["id"] for card in first["postcards"]} & {card["id"] for card in second["postcards"]}
+    assert game.mail["left"]["unread"] == 15
+    game.handle("left", {"type": "read", "id": first["postcards"][0]["id"]})
+    assert game.mail["left"]["unread"] == 14
+    assert game.handle("left", {"type": "gallery"}) == first
+
+
+@pytest.mark.parametrize("page", [None, True, "1", -1, 2**31, []])
+def test_gallery_rejects_invalid_pages(game, page):
+    with pytest.raises(ValueError, match="gallery page"):
+        game.handle("left", {"type": "gallery", "page": page})
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_library_delete_is_soft_and_persists(game, tmp_path, side):
+    other = "right" if side == "left" else "left"
+    write(game, other, "Keep the original postcard")
+    deliver(game, other)
+    card = game.store.inbox(side)[0]
+    game.players[side].x = WORLD["desks"][side]
+    result = game.handle(side, {"type": "delete", "id": card["id"]})
+    assert result == {"type": "gallery", "postcards": [], "page": 0, "hasMore": False}
+    assert game.mail[side]["unread"] == 0
+    assert game.store.inbox(side) == []
+    row = game.store.db.execute("SELECT body, deleted_at FROM postcards WHERE id = ?", (card["id"],)).fetchone()
+    assert row["body"] == card["body"] and row["deleted_at"] is not None
+    assert game.handle(side, {"type": "delete", "id": card["id"]}) == result
+    with closing(Store(tmp_path / "postcards.sqlite3")) as store:
+        assert store.inbox(side, include_read=True) == []
+        assert store.summary(side)["unread"] == 0
+
+
+def test_library_delete_only_allows_delivered_received_cards_at_home(game):
+    write(game, "right", "Incoming")
+    deliver(game, "right")
+    incoming = game.store.inbox("left")[0]
+    game.players["left"].x = WORLD["desks"]["right"]
+    with pytest.raises(ValueError, match="your home"):
+        game.handle("left", {"type": "delete", "id": incoming["id"]})
+    game.players["right"].x = WORLD["desks"]["right"]
+    game.handle("right", {"type": "delete", "id": incoming["id"]})
+    assert game.store.inbox("left") == [incoming]
+    write(game, "right", "Undelivered")
+    carried = game.store.db.execute("SELECT id FROM postcards WHERE delivered_at IS NULL").fetchone()[0]
+    game.players["left"].x = WORLD["desks"]["left"]
+    game.handle("left", {"type": "delete", "id": carried})
+    assert game.store.summary("right")["carrying"]
+    assert game.store.db.execute("SELECT deleted_at FROM postcards WHERE id = ?", (carried,)).fetchone()[0] is None
+
+
+def test_delete_last_card_on_page_returns_previous_page(game):
+    for index in range(13):
+        write(game, "right", f"Card {index}")
+        deliver(game, "right")
+    game.players["left"].x = WORLD["desks"]["left"]
+    last = game.handle("left", {"type": "gallery", "page": 1})["postcards"][0]
+    result = game.handle("left", {"type": "delete", "id": last["id"], "page": 1})
+    assert result["page"] == 0 and not result["hasMore"]
+    assert len(result["postcards"]) == 12
+    assert last["id"] not in {card["id"] for card in result["postcards"]}
+
+
+@pytest.mark.parametrize("postcard_id", [None, True, "1", 0, -1, []])
+def test_delete_rejects_invalid_ids(game, postcard_id):
+    with pytest.raises(ValueError, match="Invalid postcard"):
+        game.handle("left", {"type": "delete", "id": postcard_id})
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
 def test_read_markers_only_affect_delivered_mail_for_the_recipient(game, side):
     other = "right" if side == "left" else "left"
     write(game, other, "Private incoming card.")

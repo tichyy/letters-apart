@@ -11,7 +11,7 @@ await font.load()
   .catch(error => console.warn('Font failed to load', error));
 
 const connection = new Connection(receive, () => ui.disconnected());
-const ui = new UI(message => connection.send(message), side => connection.connect(side), () => scene.interact(), connection);
+const ui = new UI(message => connection.send(message), side => connection.connect(side), action => scene.interact(action), connection);
 const scene = new WorldScene(connection, ui);
 
 new Phaser.Game({
@@ -34,6 +34,7 @@ function receive(message: Message): void {
     case 'compose': ui.compose(); break;
     case 'written': ui.written(message.requestId); break;
     case 'mailbox': ui.read(message.postcards); break;
+    case 'gallery': ui.gallery(message.postcards, message.page, message.hasMore); break;
     case 'occupied': ui.chooseHome(true); break;
     case 'error': ui.error(message.message, message.requestId); break;
     case 'mailbox_used': scene.useMailbox(message.side); break;

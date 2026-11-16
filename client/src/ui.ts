@@ -8,10 +8,17 @@ interface PendingWrite {
     imageId: string | null; crop: Crop };
 }
 
+interface LibraryPages {
+  previous?: () => boolean;
+  next?: () => boolean;
+  remove: (id: number, index: number) => boolean;
+}
+
 export class UI {
   readonly gameplay: HTMLElement;
   private panel = document.createElement('dialog');
   private hint: HTMLButtonElement;
+  private galleryButton: HTMLButtonElement;
   private notice: HTMLElement;
   private toastTimer?: number;
   private events = new EventTarget();
@@ -20,19 +27,27 @@ export class UI {
   private pending?: PendingWrite;
   private side?: Side;
   private updateCompose?: () => void;
+  private caretCleanup?: () => void;
+  private galleryFromEnd = false;
+  private galleryFront = true;
+  private galleryIndex = 0;
+  private libraryReader?: (cards: Postcard[], start: number, pages: LibraryPages) => void;
   private get photoDraftKey(): string { return `letters-draft-photo-${this.side}`; }
 
   constructor(
     private readonly send: (message: object) => boolean,
     private readonly join: (side: Side) => void,
-    private readonly requestInteraction: () => void,
+    private readonly requestInteraction: (type?: 'interact' | 'gallery') => void,
     private readonly connection: Connection,
   ) {
     const root = document.querySelector<HTMLElement>('#interface')!;
     root.innerHTML = `
       <div id="notice" role="status" aria-live="polite"></div>
       <div id="gameplay">
-        <div class="bottom"><button id="interact" class="interaction" hidden></button></div>
+        <div class="bottom">
+          <button id="interact" class="interaction" hidden></button>
+          <button id="gallery" class="interaction" hidden>Received postcards</button>
+        </div>
         <div class="touch-controls" aria-label="Movement controls">
           <div class="movement-controls">
             <button type="button" data-control="left" aria-label="Walk left">
@@ -55,11 +70,22 @@ export class UI {
     }
     this.gameplay = root.querySelector('#gameplay')!;
     this.hint = root.querySelector('#interact')!;
+    this.galleryButton = root.querySelector('#gallery')!;
     this.notice = root.querySelector('#notice')!;
     root.append(this.panel);
     this.hint.onclick = () => this.interact();
+    this.galleryButton.onclick = () => {
+      if (this.blocked) return;
+      this.galleryFromEnd = false;
+      this.galleryFront = true;
+      this.galleryIndex = 0;
+      this.requestInteraction('gallery');
+    };
     this.panel.addEventListener('close', () => {
       if (this.panel.open) return;
+      this.caretCleanup?.();
+      this.caretCleanup = undefined;
+      this.libraryReader = undefined;
       this.photo?.dispose();
       this.photo = undefined;
       this.updateCompose = undefined;
@@ -92,6 +118,8 @@ export class UI {
     this.hint.hidden = !text;
     this.hint.textContent = matchMedia('(any-pointer: coarse)').matches ? text.replace(/^E · /, '') : text;
   }
+
+  setGalleryAvailable(available: boolean): void { this.galleryButton.hidden = !available; }
 
   interact(): void {
     if (!this.blocked) this.requestInteraction();
@@ -126,6 +154,7 @@ export class UI {
     this.fitPostcardText(form);
     const textarea = form.querySelector('textarea')!;
     for (const field of [title, textarea]) this.limitPostcardText(field);
+    this.trackInsertion(form);
     const pack = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
     const reset = form.querySelector<HTMLButtonElement>('[type="reset"]')!;
     const preview = form.querySelector<HTMLElement>('.postcard-stamp')!;
@@ -215,43 +244,136 @@ export class UI {
     this.toast('Postcard packed. Deliver it to the other mailbox.');
   }
 
-  read(cards: Postcard[]): void {
-    if (!cards.length) return;
-    const form = this.postcard(cards[0].body, cards[0].stamp, false);
+  gallery(cards: Postcard[], page: number, hasMore: boolean): void {
+    const start = this.galleryFromEnd ? cards.length - 1 : Math.min(this.galleryIndex, cards.length - 1);
+    this.galleryIndex = 0;
+    this.galleryFromEnd = false;
+    if (!cards.length) {
+      this.open('gallery', `<h1>Received postcards</h1>
+        <p>Your received postcards will appear here.</p>
+        <div class="home-choices"><button type="button">Close</button></div>`);
+      this.panel.querySelector('button')!.onclick = () => this.panel.close();
+      return;
+    }
+    const turnPage = (target: number, fromEnd: boolean): boolean => {
+      if (!this.send({ type: 'gallery', page: target })) {
+        this.toast('Connection lost. Reopen your library when connected.');
+        return false;
+      }
+      this.galleryFromEnd = fromEnd;
+      return true;
+    };
+    this.read(cards, start, {
+      previous: page > 0 ? () => turnPage(page - 1, true) : undefined,
+      next: hasMore ? () => turnPage(page + 1, false) : undefined,
+      remove: (id, index) => {
+        if (!this.send({ type: 'delete', id, page })) {
+          this.toast('Connection lost. Please try again when connected.');
+          return false;
+        }
+        this.galleryIndex = index;
+        this.galleryFromEnd = cards.length === 1 && page > 0;
+        return true;
+      },
+    });
+  }
+
+  read(cards: Postcard[], start = 0, pages?: LibraryPages): void {
+    if (!cards[start]) return;
+    if (pages && this.libraryReader) {
+      this.libraryReader(cards, start, pages);
+      return;
+    }
+    const form = this.postcard(cards[start].body, cards[start].stamp, false);
     const photo = this.photo = new PhotoEditor(form, this.connection, () => {});
     const previous = form.querySelector<HTMLButtonElement>('.postcard-previous')!;
     const next = form.querySelector<HTMLButtonElement>('.postcard-next')!;
+    let remove: HTMLButtonElement | undefined;
+    if (pages) {
+      remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'postcard-delete';
+      remove.setAttribute('aria-label', 'Delete postcard');
+      remove.title = 'Delete postcard';
+      form.querySelector('.postcard-stage')!.append(remove);
+      remove.onclick = () => {
+        if (!loading && current && pages?.remove(current.id, index)) {
+          remove!.disabled = previous.disabled = next.disabled = true;
+        }
+      };
+    }
     let index = -1;
-    const show = (target: number) => {
-      if (!this.panel.open) return;
-      const card = cards[target];
-      if (index >= 0 && !this.send({ type: 'read', id: cards[index].id })) {
+    let current: Postcard | undefined;
+    let loading = false;
+    const markCurrent = () => !current || this.send({ type: 'read', id: current.id });
+    const show = async (target: number) => {
+      if (!this.panel.open || loading) return;
+      if (!markCurrent()) {
         this.panel.close();
         this.error('Connection lost. Reopen your mailbox when connected.');
         return;
       }
+      if (target < 0 || target >= cards.length) {
+        const turnPage = target < 0 ? pages?.previous : pages?.next;
+        if (turnPage?.()) previous.disabled = next.disabled = true;
+        return;
+      }
+      const card = cards[target];
+      if (!pages && form.dataset.side === 'front') form.querySelector<HTMLButtonElement>('.postcard-turn')!.click();
+      loading = true;
+      previous.disabled = next.disabled = true;
+      if (remove) remove.disabled = true;
+      const loaded = await photo.show(card.image ?? null, !!pages);
+      loading = false;
+      if (remove) remove.disabled = false;
+      if (!this.panel.open || this.photo !== photo) return;
+      if (pages && !loaded && current) {
+        previous.disabled = index < 0 || (index === 0 && !pages.previous);
+        next.disabled = index < 0 || (index === cards.length - 1 && !pages.next);
+        this.toast('Could not load this postcard. Please try again.');
+        return false;
+      }
       index = target;
-      if (form.dataset.side === 'front') form.querySelector<HTMLButtonElement>('.postcard-turn')!.click();
-      void photo.show(card.image ?? null);
+      current = card;
+      form.classList.add('has-card');
       form.querySelector<HTMLInputElement>('.postcard-title')!.value = card.title;
       form.querySelector('textarea')!.value = card.body;
       this.fitPostcardText(form);
       const stamp = form.querySelector<HTMLElement>('.postcard-stamp')!;
       stamp.style.backgroundImage = `url('/ui/stamp${card.stamp}.png')`;
       stamp.setAttribute('aria-label', `Stamp ${card.stamp}`);
-      previous.disabled = index === 0;
-      next.disabled = index === cards.length - 1;
+      previous.disabled = index === 0 && !pages?.previous;
+      next.disabled = index === cards.length - 1 && !pages?.next;
+      return true;
     };
     previous.onclick = () => show(index - 1);
     next.onclick = () => show(index + 1);
     this.panel.onclose = () => {
       if (this.panel.open) return;
-      if (this.panel.dataset.kind === 'postcard' && index >= 0) {
-        this.send({ type: 'read', id: cards[index].id });
+      if (this.panel.dataset.kind === 'postcard' && current) {
+        markCurrent();
       }
       this.panel.onclose = null;
     };
-    show(0);
+    if (pages) {
+      this.libraryReader = async (nextCards, nextStart, nextPages) => {
+        const saved = { cards, pages, index };
+        cards = nextCards;
+        pages = nextPages;
+        index = -1;
+        if (!await show(nextStart) && this.panel.open && this.photo === photo) {
+          ({ cards, pages, index } = saved);
+          previous.disabled = index === 0 && !pages?.previous;
+          next.disabled = index === cards.length - 1 && !pages?.next;
+        }
+      };
+    }
+    void show(start);
+    if (pages) {
+      const turn = form.querySelector<HTMLButtonElement>('.postcard-turn')!;
+      turn.addEventListener('click', () => { this.galleryFront = form.dataset.side === 'front'; });
+      if (this.galleryFront) turn.click();
+    }
   }
 
   private postcard(body: string, stamp: Stamp | null, writing: boolean): HTMLFormElement {
@@ -264,9 +386,9 @@ export class UI {
           </div>
           <div class="postcard-back">
             <input class="postcard-title" name="title" aria-label="Postcard title"
-              maxlength="60" autocomplete="off" ${writing ? '' : 'readonly'}>
+              maxlength="60" autocomplete="off" ${writing ? 'placeholder="A little title..."' : 'readonly'}>
             <textarea class="postcard-message" name="message" aria-label="Postcard message"
-              maxlength="1000" required ${writing ? '' : 'readonly'}></textarea>
+              maxlength="1000" required ${writing ? 'placeholder="Write a little note..."' : 'readonly'}></textarea>
             <span class="postcard-stamp" role="img" aria-label="Stamp ${stamp}"
               ${stamp ? `style="background-image: url('/ui/stamp${stamp}.png')"` : 'hidden'}></span>
           </div>
@@ -317,6 +439,61 @@ export class UI {
     return form;
   }
 
+  private trackInsertion(form: HTMLFormElement): void {
+    const back = form.querySelector<HTMLElement>('.postcard-back')!;
+    const highlight = document.createElement('span');
+    highlight.className = 'postcard-insertion';
+    highlight.setAttribute('aria-hidden', 'true');
+    const mirror = document.createElement('div');
+    mirror.className = 'postcard-text-mirror';
+    mirror.setAttribute('aria-hidden', 'true');
+    back.append(highlight, mirror);
+    const events = new AbortController();
+    let composing = false;
+    const update = () => {
+      const field = document.activeElement;
+      highlight.hidden = true;
+      if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)
+          || !back.contains(field) || field.readOnly || composing
+          || field.selectionStart === null || field.selectionStart !== field.selectionEnd) return;
+      const style = getComputedStyle(field);
+      const size = parseFloat(style.fontSize);
+      Object.assign(mirror.style, {
+        width: `${field.clientWidth}px`, fontFamily: style.fontFamily, fontSize: style.fontSize,
+        fontWeight: style.fontWeight, fontStyle: style.fontStyle, lineHeight: style.lineHeight,
+        letterSpacing: style.letterSpacing,
+        whiteSpace: field instanceof HTMLInputElement ? 'pre' : 'pre-wrap',
+      });
+      const index = field.selectionStart;
+      const codePoint = field.value.codePointAt(index);
+      const character = codePoint === undefined ? '' : String.fromCodePoint(codePoint);
+      const marker = document.createElement('span');
+      marker.textContent = character && character !== '\n' ? character : '\u00a0';
+      mirror.replaceChildren(document.createTextNode(field.value.slice(0, index)), marker,
+        document.createTextNode(field.value.slice(index + character.length)));
+      const cell = marker.getBoundingClientRect();
+      const origin = mirror.getBoundingClientRect();
+      const inset = field instanceof HTMLInputElement ? (field.clientHeight - size) / 2 : 0;
+      Object.assign(highlight.style, {
+        left: `${Math.round(field.offsetLeft + cell.left - origin.left - field.scrollLeft)}px`,
+        top: `${Math.round(field.offsetTop + inset + cell.top - origin.top + size * 0.3125 - field.scrollTop)}px`,
+        width: `${Math.max(2, Math.round(cell.width))}px`, height: `${Math.round(size * 0.5)}px`,
+      });
+      highlight.hidden = false;
+    };
+    for (const event of ['input', 'focusin', 'focusout', 'keyup', 'pointerup', 'select', 'scroll']) {
+      form.addEventListener(event, update, { capture: true, signal: events.signal });
+    }
+    form.addEventListener('reset', () => queueMicrotask(update), { signal: events.signal });
+    form.addEventListener('compositionstart', () => { composing = true; update(); }, { signal: events.signal });
+    form.addEventListener('compositionend', () => { composing = false; update(); }, { signal: events.signal });
+    document.addEventListener('selectionchange', update, { signal: events.signal });
+    const resize = new ResizeObserver(update);
+    resize.observe(form);
+    this.caretCleanup = () => { events.abort(); resize.disconnect(); };
+    update();
+  }
+
   private textOverflows(field: HTMLInputElement | HTMLTextAreaElement): boolean {
     return field.scrollHeight > field.clientHeight + 1 || field.scrollWidth > field.clientWidth + 1;
   }
@@ -326,7 +503,7 @@ export class UI {
       if (!field.clientWidth) continue;
       field.style.fontSize = '';
       // Keep older, longer postcards readable inside the same fixed area.
-      for (let size = 5; this.textOverflows(field) && size > 1; size -= 0.125) {
+      for (let size = field.classList.contains('postcard-title') ? 6 : 5; this.textOverflows(field) && size > 1; size -= 0.125) {
         field.style.fontSize = `${size - 0.125}cqw`;
       }
       field.scrollTop = field.scrollLeft = 0;
@@ -380,6 +557,9 @@ export class UI {
   }
 
   private open(kind: string, html: string): void {
+    this.caretCleanup?.();
+    this.caretCleanup = undefined;
+    this.libraryReader = undefined;
     this.photo?.dispose();
     this.photo = undefined;
     this.updateCompose = undefined;

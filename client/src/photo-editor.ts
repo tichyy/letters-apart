@@ -85,7 +85,7 @@ export class PhotoEditor {
     this.controller?.abort();
     this.controller = new AbortController();
     this.busy = true;
-    this.status.textContent = 'Preparing photo…';
+    this.status.textContent = '';
     this.pointers.clear();
     this.changed();
     this.render();
@@ -138,26 +138,40 @@ export class PhotoEditor {
     }
   }
 
-  async show(photo: Photo | null): Promise<void> {
-    this.release();
-    this.photo = photo;
+  async show(photo: Photo | null, retain = false): Promise<boolean> {
+    if (!retain) {
+      this.release();
+      this.photo = photo;
+    }
     this.pendingUpload = undefined;
     if (!photo) {
       this.controller?.abort();
       ++this.generation;
+      this.release();
+      this.photo = null;
       this.busy = false;
       this.status.textContent = '';
       this.render();
-      return;
+      return true;
     }
     const { generation, signal } = this.begin();
+    let url: string | undefined;
     try {
       const blob = await this.connection.readPhoto(photo.id, signal);
-      if (!this.current(generation)) return;
-      this.url = URL.createObjectURL(blob);
+      if (!this.current(generation)) return false;
+      url = URL.createObjectURL(blob);
+      const decoded = new Image();
+      decoded.src = url;
+      await decoded.decode();
+      if (!this.current(generation)) return false;
+      this.release();
+      this.photo = photo;
+      this.url = url;
+      url = undefined;
       this.image.src = this.url;
       this.image.hidden = false;
       this.status.textContent = '';
+      return true;
     } catch (error) {
       if (this.current(generation)) {
         if (this.writing && error instanceof HttpError && error.status === 404) {
@@ -167,7 +181,9 @@ export class PhotoEditor {
         }
         this.status.textContent = this.message(error);
       }
+      return false;
     } finally {
+      if (url) URL.revokeObjectURL(url);
       if (this.current(generation)) {
         this.busy = false;
         this.render();

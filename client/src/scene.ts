@@ -16,7 +16,7 @@ export class WorldScene extends Phaser.Scene {
   private pending: Input[] = [];
   private outgoing: Input[] = [];
   private seq = 0;
-  private interaction: number | null = null;
+  private interaction: { seq: number; type: 'interact' | 'gallery' } | null = null;
   private local: Motion = { x: 0, y: 0, vy: 0, jumpChain: 0, landingTicks: 0 };
   private accumulator = 0;
   private active = false;
@@ -54,20 +54,22 @@ export class WorldScene extends Phaser.Scene {
       this.local = this.pending.reduce<Motion>(move, own);
     }
     // Interact only after the server has applied the movement already shown locally.
-    if (this.interaction !== null && own.ack >= this.interaction) {
+    if (this.interaction !== null && own.ack >= this.interaction.seq) {
+      const type = this.interaction.type;
       this.interaction = null;
-      this.connection.send({ type: 'interact' });
+      this.connection.send({ type });
     }
     const partner = this.players.find(player => player.side !== own.side)!;
     this.view.recordPartner(partner, message.type === 'welcome');
   }
 
-  interact(): void {
+  interact(type: 'interact' | 'gallery' = 'interact'): void {
     if (!this.connection.ready || this.interaction !== null) return;
     const side = this.connection.side!;
+    if (type === 'gallery' && !this.nearby(world.desks[side])) return;
     if (![world.desks[side], world.mailboxes.left, world.mailboxes.right].some(x => this.nearby(x))) return;
     this.flush();
-    this.interaction = this.seq;
+    this.interaction = { seq: this.seq, type };
   }
 
   stop(): void {
@@ -86,6 +88,7 @@ export class WorldScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (!this.active || !this.connection.ready || !this.players.length) {
       this.ui.setHint('');
+      this.ui.setGalleryAvailable(false);
       return;
     }
     const direction = this.controls.direction();
@@ -117,6 +120,7 @@ export class WorldScene extends Phaser.Scene {
     else if (this.nearby(world.mailboxes[side])) hint = own.unread ? 'E · Read your mail' : 'E · Check your mailbox';
     else if (this.nearby(world.mailboxes[other]) && own.carrying) hint = 'E · Deliver your postcard';
     this.ui.setHint(this.ui.blocked ? '' : hint);
+    this.ui.setGalleryAvailable(!this.ui.blocked && this.nearby(world.desks[side]));
   }
 
   useMailbox(side: Side): void {

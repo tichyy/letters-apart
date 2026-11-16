@@ -4,6 +4,7 @@
   color: #fff1d6;
   background: #143f5b;
   font-synthesis: none;
+  font-kerning: none;
   color-scheme: light;
 }
 
@@ -35,13 +36,9 @@ button:disabled { opacity: 0.6; cursor: wait; }
 #notice:empty { display: none; }
 .bottom {
   position: absolute; bottom: max(25px, env(safe-area-inset-bottom)); left: 20px; right: 20px;
-  display: flex; justify-content: center;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 12px;
 }
-.interaction {
-  padding: 12px 18px; color: #fff1d6; border: 1px solid #e3bc8870;
-  background: #392c27e8; box-shadow: 0 3px 0 #30251e;
-}
-.interaction:hover { background: #4e3830; }
+.interaction { text-shadow: 2px 2px 0 #132d32; }
 .touch-controls { display: none; }
 
 dialog {
@@ -62,7 +59,6 @@ dialog button {
   padding: 11px 14px; border: 1px solid #8e6247; background: #77503c; color: #fff3dc;
   box-shadow: 0 2px 0 #573b2d;
 }
-dialog[data-kind="home"] button:hover { background: #8e6247; }
 .home-choices { display: flex; gap: 12px; margin-top: 25px; }
 .home-choices button { flex: 1; }
 .small { color: #947862; }
@@ -81,6 +77,9 @@ dialog[data-kind="postcard"] {
 }
 .postcard-editor { position: relative; margin: 0; -webkit-tap-highlight-color: transparent; }
 .postcard-stage { position: relative; aspect-ratio: 106 / 83; overflow: hidden; container-type: inline-size; }
+dialog[data-kind="postcard"] .postcard-editor[data-side="front"]:not(.has-card):has(.postcard-photo[aria-busy="true"]) .postcard-stage {
+  visibility: hidden;
+}
 /* Crop the shared 128px artwork canvas to the postcard and buttons. */
 .postcard-art {
   position: absolute; z-index: 1; width: 120.7547%; height: auto; left: -15.0943%; top: -8.4337%;
@@ -106,25 +105,36 @@ dialog[data-kind="compose"] .postcard-photo { touch-action: none; cursor: pointe
 .postcard-photo:focus-visible { outline: 3px solid #cf8c48; outline-offset: -4px; }
 .postcard-photo-status {
   position: absolute; top: 100%; left: 0; right: 0;
-  margin: 8px 0 0; text-align: center; color: #fff1d6; font-size: 20px;
+  margin: 8px 0 0; text-align: center; color: #fff1d6; font-size: 16px;
 }
 dialog[data-kind="compose"] .postcard-photo-status { top: auto; bottom: 0; width: 91.509434%; }
 .postcard-photo-status:empty { display: none; }
 .postcard-title, .postcard-message {
   position: absolute; left: 7.5472%; width: 38.6792%;
   padding: 0; margin: 0; border: 0; border-radius: 0; outline: none; resize: none;
-  background: transparent; color: #513e35; font-size: 5cqw; line-height: 1; overflow: hidden;
+  caret-color: transparent; background: transparent; color: #513e35; font-size: 5cqw; line-height: 1; overflow: hidden;
 }
-.postcard-title { top: 15.6627%; height: 12.0482%; }
+.postcard-title { top: 15.6627%; height: 12.0482%; font-size: 6cqw; }
 .postcard-message { top: 38.5542%; height: 50.6024%; }
 .postcard-title:focus-visible, .postcard-message:focus-visible { outline: none; }
 dialog[data-kind="postcard"] :is(.postcard-title, .postcard-message) { caret-color: transparent; cursor: default; }
 dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size: max(16px, 5cqw); }
+dialog[data-kind="compose"] .postcard-title { font-size: max(16px, 6cqw); }
+dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder {
+  color: #d0bda1; opacity: 1;
+}
+.postcard-insertion {
+  position: absolute; pointer-events: none; background: #79573518;
+}
+.postcard-text-mirror {
+  position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none;
+  overflow-wrap: break-word;
+}
 .postcard-editor button {
   padding: 0; border: 0; border-radius: 0; box-shadow: none;
   background-color: transparent; background-repeat: no-repeat; image-rendering: pixelated;
 }
-.postcard-turn, .postcard-pack, .postcard-reset {
+.postcard-turn, .postcard-pack, .postcard-reset, .postcard-delete {
   position: absolute; width: 14.1509%; height: 18.0723%; background-size: 853.3333% 853.3333%;
 }
 .postcard-turn {
@@ -135,25 +145,30 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size:
   left: 85.8491%; top: 78.3133%; background-position: 94.6903% 63.7168%;
   background-image: url('/ui/button_send1.png');
 }
-.postcard-reset {
+.postcard-reset, .postcard-delete {
   left: 0; top: 0; background-position: 14.1593% 6.1947%;
   background-image: url('/ui/button_reset1.png');
 }
-.postcard-pack:disabled, .postcard-reset:disabled { cursor: default; }
+.postcard-delete { background-image: url('/ui/button_delete1.png'); }
+.postcard-delete:disabled { opacity: 1; }
+.postcard-pack:disabled, .postcard-reset:disabled, .postcard-delete:disabled { cursor: default; }
 .postcard-turn:focus-visible { background-image: url('/ui/button_rotate2.png'); outline: none; }
 .postcard-pack:enabled:focus-visible { background-image: url('/ui/button_send2.png'); outline: none; }
+.postcard-delete:enabled:focus-visible { background-image: url('/ui/button_delete2.png'); outline: none; }
 .postcard-reset:enabled:focus-visible { background-image: url('/ui/button_reset2.png'); outline: none; }
 .postcard-previous:enabled:focus-visible { background-image: url('/ui/button_left2.png'); outline: none; }
 .postcard-next:enabled:focus-visible { background-image: url('/ui/button_right2.png'); outline: none; }
 @media (hover: hover) {
   .postcard-turn:hover { background-image: url('/ui/button_rotate2.png'); }
   .postcard-pack:enabled:hover { background-image: url('/ui/button_send2.png'); }
+  .postcard-delete:enabled:hover { background-image: url('/ui/button_delete2.png'); }
   .postcard-reset:enabled:hover { background-image: url('/ui/button_reset2.png'); }
   .postcard-previous:enabled:hover { background-image: url('/ui/button_left2.png'); }
   .postcard-next:enabled:hover { background-image: url('/ui/button_right2.png'); }
 }
 .postcard-turn:active { background-image: url('/ui/button_rotate3.png'); }
 .postcard-pack:enabled:active { background-image: url('/ui/button_send3.png'); }
+.postcard-delete:enabled:active { background-image: url('/ui/button_delete3.png'); }
 .postcard-reset:enabled:active { background-image: url('/ui/button_reset3.png'); }
 .postcard-previous:enabled:active { background-image: url('/ui/button_left3.png'); }
 .postcard-next:enabled:active { background-image: url('/ui/button_right3.png'); }
@@ -167,6 +182,11 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size:
 .postcard-previous { left: 32.0755%; background-image: url('/ui/button_left1.png'); }
 .postcard-navigation .postcard-next {
   left: 45.2830%; background-image: url('/ui/button_right1.png'); background-position: 56.1404% 82.3009%;
+}
+/* The pixel font's outlines align cleanly at multiples of 16px. */
+:is(.interaction, .home-choices button) {
+  padding: 8px 12px; border: 0; background: none; box-shadow: none; color: inherit;
+  font-size: 32px; line-height: 1;
 }
 .postcard-stamp, .postcard-stamps input {
   background-size: 800% 853.3333%; background-position: 79.4643% 16.8142%;
@@ -215,7 +235,7 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message) { font-size:
     left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
     bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);
   }
-  .interaction { min-height: 48px; max-width: 100%; font-size: 26px; }
+  .interaction { min-height: 48px; max-width: 100%; }
 }
 
 @media (max-width: 600px) {

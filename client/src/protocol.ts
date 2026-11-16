@@ -45,6 +45,7 @@ export type Message =
   | { type: 'compose' }
   | { type: 'written'; requestId?: string }
   | { type: 'mailbox'; postcards: Postcard[] }
+  | { type: 'gallery'; postcards: Postcard[]; page: number; hasMore: boolean }
   | { type: 'mailbox_used'; side: Side }
   | { type: 'delivered'; sender: Side; recipient: Side }
   | { type: 'error'; message: string; requestId?: string }
