@@ -104,6 +104,11 @@ export class WorldScene extends Phaser.Scene {
 
     this.view.renderPlayers(this.players, this.connection.side!, this.local, direction, delta);
     this.view.followPlayer(this.local.x);
+    const anchor = this.ui.noticeAnchor;
+    if (anchor) {
+      const { x, y } = this.view.noticeAnchor(anchor);
+      this.ui.positionNotice(x, y);
+    }
     this.updateHint();
   }
 

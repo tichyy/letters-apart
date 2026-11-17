@@ -183,6 +183,16 @@ export class WorldView {
     this.soil.scroll(left, left);
   }
 
+  noticeAnchor(position: { x: number; y: number }): { x: number; y: number } {
+    const camera = this.scene.cameras.main;
+    const canvas = this.scene.game.canvas.getBoundingClientRect();
+    // Above the interactable object, converted from world units to CSS pixels.
+    return {
+      x: canvas.left + (position.x - camera.scrollX) * camera.zoom * canvas.width / this.scene.scale.width,
+      y: canvas.top + (groundY + position.y - 104 - camera.scrollY) * camera.zoom * canvas.height / this.scene.scale.height,
+    };
+  }
+
   recordPartner(player: Player, reset: boolean): void {
     if (reset) this.remote = [];
     this.remote.push({ time: performance.now(), player });

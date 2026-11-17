@@ -3,6 +3,7 @@ import { Connection } from './connection';
 import { WorldScene } from './scene';
 import { UI } from './ui';
 import type { Message, Side } from './protocol';
+import world from '../../world.json';
 import './style.css';
 
 const font = new FontFace('GameFont', 'url("/font.ttf")');
@@ -41,7 +42,8 @@ function receive(message: Message): void {
     case 'delivered':
       ui.toast(message.sender === connection.side
         ? 'Delivered. A little piece of you, safely on the other side.'
-        : 'A postcard arrived in your mailbox.');
+        : 'A postcard arrived in your mailbox.',
+      message.sender === connection.side ? { x: world.mailboxes[message.recipient], y: 0 } : undefined);
       break;
   }
 }

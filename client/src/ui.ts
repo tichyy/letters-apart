@@ -1,6 +1,7 @@
 import type { Postcard, Side, Stamp, Crop } from './protocol';
 import { Connection, randomId } from './connection';
 import { PhotoEditor } from './photo-editor';
+import world from '../../world.json';
 
 interface PendingWrite {
   side: Side;
@@ -21,6 +22,8 @@ export class UI {
   private galleryButton: HTMLButtonElement;
   private notice: HTMLElement;
   private toastTimer?: number;
+  private toastAnimation?: Animation;
+  private noticeWorldPosition?: { x: number; y: number };
   private events = new EventTarget();
   private submitting = false;
   private photo?: PhotoEditor;
@@ -116,6 +119,22 @@ export class UI {
 
   setGalleryAvailable(available: boolean): void { this.galleryButton.hidden = !available; }
 
+  get noticeAnchor(): { x: number; y: number } | undefined {
+    return this.notice.textContent ? this.noticeWorldPosition : undefined;
+  }
+
+  positionNotice(x: number, y: number): void {
+    const bounds = this.notice.parentElement!.getBoundingClientRect();
+    const halfWidth = this.notice.offsetWidth / 2;
+    const height = this.notice.offsetHeight;
+    // World messages leave the screen with their object instead of sticking to
+    // the screen edge as the player walks away.
+    this.notice.style.visibility = x < bounds.left || x > bounds.right ? 'hidden' : '';
+    // Keep the message readable at the edges and within the mobile viewport.
+    this.notice.style.left = `${Math.max(halfWidth + 16, Math.min(bounds.width - halfWidth - 16, x - bounds.left))}px`;
+    this.notice.style.top = `${Math.max(height + 16, Math.min(bounds.height - 16, y - bounds.top))}px`;
+  }
+
   openLibrary(): void {
     if (this.blocked || this.galleryButton.hidden) return;
     this.galleryFromEnd = false;
@@ -128,10 +147,30 @@ export class UI {
     if (!this.blocked) this.requestInteraction();
   }
 
-  toast(text: string): void {
+  toast(text: string, anchor?: { x: number; y: number }): void {
     clearTimeout(this.toastTimer);
+    const opacity = getComputedStyle(this.notice).opacity;
+    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 200;
+    this.toastAnimation?.cancel();
+    this.noticeWorldPosition = anchor ? { ...anchor } : undefined;
+    this.notice.style.visibility = '';
+    if (!anchor) {
+      this.notice.style.left = '';
+      this.notice.style.top = '';
+    }
     this.notice.textContent = text;
-    this.toastTimer = window.setTimeout(() => { this.notice.textContent = ''; }, 4500);
+    this.toastAnimation = this.notice.animate([{ opacity }, { opacity: 1 }], {
+      duration, easing: 'ease-out', fill: 'forwards',
+    });
+    this.toastTimer = window.setTimeout(() => {
+      this.toastAnimation?.cancel();
+      const fade = this.toastAnimation = this.notice.animate([{ opacity: 1 }, { opacity: 0 }], {
+        duration, easing: 'ease-in', fill: 'forwards',
+      });
+      void fade.finished.then(() => {
+        if (this.toastAnimation === fade) this.notice.textContent = '';
+      }).catch(() => {}); // A replacement message cancels the outgoing fade.
+    }, 4500);
   }
 
   chooseHome(occupied = false): void {
@@ -244,7 +283,8 @@ export class UI {
     sessionStorage.removeItem('letters-draft-stamp');
     sessionStorage.removeItem(this.photoDraftKey);
     if (this.panel.dataset.kind === 'compose') this.panel.close();
-    this.toast('Postcard packed. Deliver it to the other mailbox.');
+    this.toast('Postcard packed. Deliver it to the other mailbox.',
+      this.side ? { x: world.desks[this.side], y: 0 } : undefined);
   }
 
   gallery(cards: Postcard[], page: number, hasMore: boolean): void {
@@ -252,10 +292,9 @@ export class UI {
     this.galleryIndex = 0;
     this.galleryFromEnd = false;
     if (!cards.length) {
-      this.open('gallery', `<h1>Received postcards</h1>
-        <p>Your received postcards will appear here.</p>
-        <div class="home-choices"><button type="button">Close</button></div>`);
-      this.panel.querySelector('button')!.onclick = () => this.panel.close();
+      if (this.libraryReader) this.panel.close();
+      this.toast('Nothing to see here yet...',
+        this.side ? { x: world.desks[this.side], y: 28 } : undefined);
       return;
     }
     const turnPage = (target: number, fromEnd: boolean): boolean => {
