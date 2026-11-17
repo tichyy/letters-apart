@@ -5,6 +5,9 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       POSTCARD_DB: /data/postcards.sqlite3
+      POSTCARD_REQUIRE_AUTH: ${POSTCARD_REQUIRE_AUTH:-0}
+      POSTCARD_ACCESS_LEFT: ${POSTCARD_ACCESS_LEFT:-}
+      POSTCARD_ACCESS_RIGHT: ${POSTCARD_ACCESS_RIGHT:-}
     volumes:
       - game-data:/data
 

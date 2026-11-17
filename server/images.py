@@ -32,7 +32,9 @@ class ImageStorage(Protocol):
 
 def normalize(data: bytes) -> tuple[bytes, int, int]:
     try:
-        with Image.open(io.BytesIO(data), formats=["JPEG", "PNG", "WEBP", "HEIF"]) as source:
+        with Image.open(
+            io.BytesIO(data), formats=["JPEG", "PNG", "WEBP", "HEIF"]
+        ) as source:
             if source.width * source.height > Image.MAX_IMAGE_PIXELS:
                 raise ValueError("Choose a photo smaller than 60 megapixels.")
             if source.format != "HEIF" and getattr(source, "n_frames", 1) != 1:
@@ -46,8 +48,10 @@ def normalize(data: bytes) -> tuple[bytes, int, int]:
             if image.info.get("icc_profile"):
                 try:
                     image = ImageCms.profileToProfile(
-                        image, ImageCms.ImageCmsProfile(io.BytesIO(image.info["icc_profile"])),
-                        ImageCms.createProfile("sRGB"), outputMode="RGBA" if "A" in image.getbands() else "RGB",
+                        image,
+                        ImageCms.ImageCmsProfile(io.BytesIO(image.info["icc_profile"])),
+                        ImageCms.createProfile("sRGB"),
+                        outputMode="RGBA" if "A" in image.getbands() else "RGB",
                     )
                 except (ImageCms.PyCMSError, OSError, ValueError):
                     pass  # A damaged color profile must not be copied into the result.
@@ -59,7 +63,9 @@ def normalize(data: bytes) -> tuple[bytes, int, int]:
                 clean.save(output, format="JPEG", quality=quality, optimize=True)
                 if output.tell() <= MAX_OUTPUT:
                     return output.getvalue(), clean.width, clean.height
-            raise ValueError("This photo is too detailed. Please choose a smaller image.")
+            raise ValueError(
+                "This photo is too detailed. Please choose a smaller image."
+            )
     except (Image.DecompressionBombWarning, Image.DecompressionBombError):
         raise ValueError("Choose a photo smaller than 60 megapixels.") from None
     except (UnidentifiedImageError, OSError, SyntaxError):
@@ -95,7 +101,11 @@ class LocalImageStorage:
 
     def cleanup_orphans(self, known_ids: set[str], older_than: float) -> None:
         for path in self.directory.iterdir():
-            if path.suffix not in (".tmp", ".jpg") or not IMAGE_ID.fullmatch(path.stem) or path.stem in known_ids:
+            if (
+                path.suffix not in (".tmp", ".jpg")
+                or not IMAGE_ID.fullmatch(path.stem)
+                or path.stem in known_ids
+            ):
                 continue
             try:
                 if path.stat().st_mtime < older_than:
@@ -103,4 +113,6 @@ class LocalImageStorage:
             except FileNotFoundError:
                 pass  # Another cleanup may already have removed the file.
             except OSError:
-                logger.warning("Could not delete orphan photo %s", path.name, exc_info=True)
+                logger.warning(
+                    "Could not delete orphan photo %s", path.name, exc_info=True
+                )

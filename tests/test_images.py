@@ -10,7 +10,7 @@ from PIL import Image
 from pillow_heif import from_pillow
 
 from server.app import create_app
-from server.game import Game, WORLD
+from server.game import WORLD, Game
 from server.image_routes import ImageService
 from server.images import MAX_UPLOAD, LocalImageStorage, normalize
 from server.store import Store, session_owner
@@ -45,7 +45,11 @@ class MemoryImages:
 TOKEN = "left-photo-player-token"
 RIGHT_TOKEN = "right-photo-player-token"
 PHOTO_ID = "a" * 32
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "X-Player-Side": "left", "X-Upload-ID": PHOTO_ID}
+HEADERS = {
+    "Authorization": f"Bearer {TOKEN}",
+    "X-Player-Side": "left",
+    "X-Upload-ID": PHOTO_ID,
+}
 RIGHT_HEADERS = {"Authorization": f"Bearer {RIGHT_TOKEN}", "X-Player-Side": "right"}
 
 
@@ -72,18 +76,37 @@ def test_photo_crop_delivery_read_and_restart(session, tmp_path):
     uploaded = client.post("/api/images", headers=HEADERS, content=photo_bytes())
     assert uploaded.status_code == 200
     assert uploaded.json()["id"] == PHOTO_ID
-    assert client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).headers["content-type"] == "image/jpeg"
-    assert client.get(f"/api/images/{PHOTO_ID}", headers=RIGHT_HEADERS).status_code == 404
+    assert (
+        client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).headers["content-type"]
+        == "image/jpeg"
+    )
+    assert (
+        client.get(f"/api/images/{PHOTO_ID}", headers=RIGHT_HEADERS).status_code == 404
+    )
     original = client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).content
-    assert client.post("/api/images", headers={**RIGHT_HEADERS, "X-Upload-ID": PHOTO_ID},
-                       content=photo_bytes()).status_code == 409
+    assert (
+        client.post(
+            "/api/images",
+            headers={**RIGHT_HEADERS, "X-Upload-ID": PHOTO_ID},
+            content=photo_bytes(),
+        ).status_code
+        == 409
+    )
     assert client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).content == original
     crop = {"x": 0.2, "y": 0.7, "zoom": 2.5}
-    message = {"type": "write", "requestId": "b" * 32, "body": "A photo from home", "stamp": 2,
-               "imageId": PHOTO_ID, "crop": crop}
+    message = {
+        "type": "write",
+        "requestId": "b" * 32,
+        "body": "A photo from home",
+        "stamp": 2,
+        "imageId": PHOTO_ID,
+        "crop": crop,
+    }
     left.send_json(message)
     assert receive_type(left, "written")["requestId"] == message["requestId"]
-    assert client.get(f"/api/images/{PHOTO_ID}", headers=RIGHT_HEADERS).status_code == 404
+    assert (
+        client.get(f"/api/images/{PHOTO_ID}", headers=RIGHT_HEADERS).status_code == 404
+    )
     assert PHOTO_ID not in json.dumps(app.state.game.snapshot())
     # Attached photos cannot be removed by a stale draft's reset request.
     assert client.delete(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code == 204
@@ -107,41 +130,92 @@ def test_photo_crop_delivery_read_and_restart(session, tmp_path):
     # Reopen the journal independently to check the committed attachment and retry record.
     with closing(Store(tmp_path / "cards.sqlite3")) as store:
         restarted = Game(store)
-        assert restarted.handle("left", message, TOKEN)["requestId"] == message["requestId"]
+        assert (
+            restarted.handle("left", message, TOKEN)["requestId"]
+            == message["requestId"]
+        )
         assert store.db.execute("SELECT COUNT(*) FROM postcards").fetchone()[0] == 1
         assert store.image_for(PHOTO_ID, "right", session_owner("right", RIGHT_TOKEN))
-    assert LocalImageStorage(tmp_path / "postcard-images").read(PHOTO_ID) == result.content
+    assert (
+        LocalImageStorage(tmp_path / "postcard-images").read(PHOTO_ID) == result.content
+    )
 
 
 def test_upload_authorization_validation_and_cleanup(session):
     app, client, left, _ = session
     assert client.post("/api/images", content=photo_bytes()).status_code == 401
-    assert client.post("/api/images", headers={**HEADERS, "Origin": "https://elsewhere.test"},
-                       content=photo_bytes()).status_code == 403
-    assert client.post("/api/images", headers=HEADERS, content=b"<svg>not a photo</svg>").status_code == 422
-    assert client.post("/api/images", headers={**HEADERS, "content-length": str(MAX_UPLOAD + 1)},
-                       content=b"small").status_code == 413
-    assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code == 200
+    assert (
+        client.post(
+            "/api/images",
+            headers={**HEADERS, "Origin": "https://elsewhere.test"},
+            content=photo_bytes(),
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/api/images", headers=HEADERS, content=b"<svg>not a photo</svg>"
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/images",
+            headers={**HEADERS, "content-length": str(MAX_UPLOAD + 1)},
+            content=b"small",
+        ).status_code
+        == 413
+    )
+    assert (
+        client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code
+        == 200
+    )
     # The upload ID makes an HTTP retry reuse the existing pending image.
-    assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).json()["id"] == PHOTO_ID
-    assert client.get(f"/api/images/{PHOTO_ID}", headers={**HEADERS, "Authorization": "Bearer another-token"}).status_code == 401
-    assert client.delete(f"/api/images/{PHOTO_ID}", headers=RIGHT_HEADERS).status_code == 204
+    assert (
+        client.post("/api/images", headers=HEADERS, content=photo_bytes()).json()["id"]
+        == PHOTO_ID
+    )
+    assert (
+        client.get(
+            f"/api/images/{PHOTO_ID}",
+            headers={**HEADERS, "Authorization": "Bearer another-token"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.delete(f"/api/images/{PHOTO_ID}", headers=RIGHT_HEADERS).status_code
+        == 204
+    )
     assert client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code == 200
     assert client.delete(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code == 204
     assert client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code == 404
     assert not app.state.images.storage.path(PHOTO_ID).exists()
     app.state.game.players["left"].x = WORLD["desks"]["right"]
-    assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code == 409
+    assert (
+        client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code
+        == 409
+    )
 
 
-@pytest.mark.parametrize("crop", [None, [], {"x": True, "y": 0, "zoom": 1},
-    {"x": -1, "y": 0, "zoom": 1}, {"x": 0, "y": 0, "zoom": 0.9},
-    {"x": 0, "y": 0, "zoom": 6}, {"x": float("nan"), "y": 0, "zoom": 1},
-    {"x": 10**400, "y": 0, "zoom": 1}])
+@pytest.mark.parametrize(
+    "crop",
+    [
+        None,
+        [],
+        {"x": True, "y": 0, "zoom": 1},
+        {"x": -1, "y": 0, "zoom": 1},
+        {"x": 0, "y": 0, "zoom": 0.9},
+        {"x": 0, "y": 0, "zoom": 6},
+        {"x": float("nan"), "y": 0, "zoom": 1},
+        {"x": 10**400, "y": 0, "zoom": 1},
+    ],
+)
 def test_invalid_crop_never_saves(tmp_path, crop):
     with closing(Store(tmp_path / "cards.sqlite3")) as store:
         with pytest.raises(ValueError, match="position or zoom"):
-            Game(store).handle("left", {"type": "write", "body": "Hello", "crop": crop}, TOKEN)
+            Game(store).handle(
+                "left", {"type": "write", "body": "Hello", "crop": crop}, TOKEN
+            )
         assert store.db.execute("SELECT COUNT(*) FROM postcards").fetchone()[0] == 0
 
 
@@ -150,13 +224,20 @@ def test_attachment_ownership_expiry_and_atomic_write(tmp_path):
         owner = session_owner("left", TOKEN)
         store.add_image(PHOTO_ID, "left", owner, 100, 100, 1000)
         game = Game(store)
-        message = {"type": "write", "body": "Hello", "imageId": PHOTO_ID, "requestId": "c" * 32}
+        message = {
+            "type": "write",
+            "body": "Hello",
+            "imageId": PHOTO_ID,
+            "requestId": "c" * 32,
+        }
         with pytest.raises(ValueError, match="no longer available"):
             game.handle("left", message, "another-session-token")
         assert not store.summary("left")["carrying"]
         assert store.image_for(PHOTO_ID, "left", owner)
         with store.db:
-            store.db.execute("UPDATE images SET expires_at = ?", (int(time.time()) - 1,))
+            store.db.execute(
+                "UPDATE images SET expires_at = ?", (int(time.time()) - 1,)
+            )
         with pytest.raises(ValueError, match="no longer available"):
             game.handle("left", message, TOKEN)
         assert store.expired_images() == [PHOTO_ID]
@@ -183,7 +264,9 @@ def test_normalize_orientation_metadata_transparency_and_heic():
     transparent = io.BytesIO()
     Image.new("RGBA", (10, 10), (255, 0, 0, 0)).save(transparent, format="PNG")
     with Image.open(io.BytesIO(normalize(transparent.getvalue())[0])) as flattened:
-        assert all(abs(a - b) < 4 for a, b in zip(flattened.getpixel((0, 0)), (248, 236, 212)))
+        assert all(
+            abs(a - b) < 4 for a, b in zip(flattened.getpixel((0, 0)), (248, 236, 212))
+        )
     heic = io.BytesIO()
     from_pillow(source).save(heic, quality=80)
     assert normalize(heic.getvalue())[1:] == source.size
@@ -192,8 +275,12 @@ def test_normalize_orientation_metadata_transparency_and_heic():
 def test_large_and_animated_images():
     assert normalize(photo_bytes(size=(2000, 1000)))[1:] == (1600, 800)
     animation = io.BytesIO()
-    Image.new("RGB", (10, 10), "red").save(animation, format="PNG", save_all=True,
-                                           append_images=[Image.new("RGB", (10, 10), "blue")])
+    Image.new("RGB", (10, 10), "red").save(
+        animation,
+        format="PNG",
+        save_all=True,
+        append_images=[Image.new("RGB", (10, 10), "blue")],
+    )
     with pytest.raises(ValueError, match="still photo"):
         normalize(animation.getvalue())
     with pytest.raises(ValueError, match="valid JPEG"):
@@ -203,7 +290,9 @@ def test_large_and_animated_images():
 def test_stream_limit_capacity_and_storage_failure(session, monkeypatch):
     app, client, _, _ = session
     monkeypatch.setattr("server.image_routes.MAX_UPLOAD", 100)
-    response = client.post("/api/images", headers=HEADERS, content=iter([b"x" * 60, b"y" * 60]))
+    response = client.post(
+        "/api/images", headers=HEADERS, content=iter([b"x" * 60, b"y" * 60])
+    )
     assert response.status_code == 413
     monkeypatch.setattr("server.image_routes.MAX_UPLOAD", MAX_UPLOAD)
     storage = app.state.images.storage
@@ -213,15 +302,30 @@ def test_stream_limit_capacity_and_storage_failure(session, monkeypatch):
         raise OSError("Storage disconnected")
 
     monkeypatch.setattr(storage, "save", fail)
-    assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code == 503
+    assert (
+        client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code
+        == 503
+    )
     assert not app.state.images.busy
     monkeypatch.setattr(storage, "save", original_save)
     for image_id in ("1" * 32, "2" * 32):
-        assert client.post("/api/images", headers={**HEADERS, "X-Upload-ID": image_id},
-                           content=photo_bytes()).status_code == 200
-    assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code == 409
+        assert (
+            client.post(
+                "/api/images",
+                headers={**HEADERS, "X-Upload-ID": image_id},
+                content=photo_bytes(),
+            ).status_code
+            == 200
+        )
+    assert (
+        client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code
+        == 409
+    )
     client.delete(f"/api/images/{'1' * 32}", headers=HEADERS)
-    assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code == 200
+    assert (
+        client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code
+        == 200
+    )
 
 
 def test_pending_expiry_orphan_cleanup_and_restart(tmp_path):
@@ -230,8 +334,15 @@ def test_pending_expiry_orphan_cleanup_and_restart(tmp_path):
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws/left?token={TOKEN}") as left:
             receive_type(left, "welcome")
-            assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code == 200
-            left.send_json({"type": "write", "body": "Still in my backpack", "imageId": PHOTO_ID})
+            assert (
+                client.post(
+                    "/api/images", headers=HEADERS, content=photo_bytes()
+                ).status_code
+                == 200
+            )
+            left.send_json(
+                {"type": "write", "body": "Still in my backpack", "imageId": PHOTO_ID}
+            )
             receive_type(left, "written")
     # A fresh app lifespan retains the image and sender access, even under a new tab token.
     with TestClient(create_app(path)) as client:
@@ -239,20 +350,28 @@ def test_pending_expiry_orphan_cleanup_and_restart(tmp_path):
         with client.websocket_connect(f"/ws/left?token={new_token}") as left:
             welcome = receive_type(left, "welcome")
             assert welcome["players"][0]["carrying"]
-            response = client.get(f"/api/images/{PHOTO_ID}", headers={**HEADERS, "Authorization": f"Bearer {new_token}"})
+            response = client.get(
+                f"/api/images/{PHOTO_ID}",
+                headers={**HEADERS, "Authorization": f"Bearer {new_token}"},
+            )
             assert response.status_code == 200
     with closing(Store(path)) as store:
         pending_id = "d" * 32
         store.add_image(pending_id, "left", session_owner("left", TOKEN), 10, 10, 200)
         LocalImageStorage(tmp_path / "postcard-images").save(pending_id, photo_bytes())
         with store.db:
-            store.db.execute("UPDATE images SET expires_at = ? WHERE id = ?", (int(time.time()) - 1, pending_id))
+            store.db.execute(
+                "UPDATE images SET expires_at = ? WHERE id = ?",
+                (int(time.time()) - 1, pending_id),
+            )
     with TestClient(create_app(path)):
         assert not (tmp_path / "postcard-images" / f"{pending_id}.jpg").exists()
         assert (tmp_path / "postcard-images" / f"{PHOTO_ID}.jpg").exists()
 
 
-def test_failed_cleanup_retains_quota_and_retries_without_blocking_other_files(tmp_path, caplog):
+def test_failed_cleanup_retains_quota_and_retries_without_blocking_other_files(
+    tmp_path, caplog
+):
     async def check():
         with closing(Store(tmp_path / "cards.sqlite3")) as store:
             storage = MemoryImages()
@@ -275,6 +394,7 @@ def test_failed_cleanup_retains_quota_and_retries_without_blocking_other_files(t
             await service.cleanup()
             assert not store.image_ids() and not storage.data
             assert store.image_capacity("left", service.byte_limit)
+
     asyncio.run(check())
 
 
@@ -284,10 +404,21 @@ def test_injected_storage_and_failed_discard_are_recoverable(tmp_path):
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws/left?token={TOKEN}") as left:
             receive_type(left, "welcome")
-            assert client.post("/api/images", headers=HEADERS, content=photo_bytes()).status_code == 200
-            assert client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).content == storage.data[PHOTO_ID]
+            assert (
+                client.post(
+                    "/api/images", headers=HEADERS, content=photo_bytes()
+                ).status_code
+                == 200
+            )
+            assert (
+                client.get(f"/api/images/{PHOTO_ID}", headers=HEADERS).content
+                == storage.data[PHOTO_ID]
+            )
             storage.fail_delete.add(PHOTO_ID)
-            assert client.delete(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code == 503
+            assert (
+                client.delete(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code
+                == 503
+            )
             assert client.portal.call(app.state.game.store.image_exists, PHOTO_ID)
             assert PHOTO_ID in storage.data
             # A retired image cannot be packed while its physical deletion is pending.
@@ -297,7 +428,10 @@ def test_injected_storage_and_failed_discard_are_recoverable(tmp_path):
             client.portal.call(app.state.images.cleanup)
             assert not client.portal.call(app.state.game.store.image_exists, PHOTO_ID)
             assert PHOTO_ID not in storage.data
-            assert client.delete(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code == 204
+            assert (
+                client.delete(f"/api/images/{PHOTO_ID}", headers=HEADERS).status_code
+                == 204
+            )
 
 
 def test_local_orphan_cleanup_retains_known_recent_and_unrelated_files(tmp_path):

@@ -1,9 +1,9 @@
 """One shared, flat world. The server advances one input per fixed tick."""
 
 import asyncio
+import hashlib
 import json
 import math
-import hashlib
 import re
 from collections import deque
 from dataclasses import dataclass, field
@@ -67,9 +67,15 @@ class Game:
             "type": "state",
             "players": [
                 {
-                    "side": p.side, "x": p.x, "y": p.y, "vy": p.vy, "facing": p.facing,
-                    "jumpChain": p.jump_chain, "landingTicks": p.landing_ticks,
-                    "moving": p.moving, "ack": p.ack,
+                    "side": p.side,
+                    "x": p.x,
+                    "y": p.y,
+                    "vy": p.vy,
+                    "facing": p.facing,
+                    "jumpChain": p.jump_chain,
+                    "landingTicks": p.landing_ticks,
+                    "moving": p.moving,
+                    "ack": p.ack,
                     "connected": p.side in self.peers,
                     **self.mail[p.side],
                 }
@@ -94,11 +100,16 @@ class Game:
                 player.landing_ticks = max(0, player.landing_ticks - 1)
                 if player.jump_held and player.landing_ticks == 0:
                     player.vy = -WORLD["jumpSpeed"]
-                    player.jump_chain = min(player.jump_chain + 1, WORLD["maxJumpChain"])
-            speed = WORLD["speed"] * (1 + max(0, player.jump_chain - 1) * WORLD["jumpBoost"])
-            player.x = max(WORLD["minX"], min(
-                WORLD["maxX"], player.x + direction * speed / WORLD["tickRate"]
-            ))
+                    player.jump_chain = min(
+                        player.jump_chain + 1, WORLD["maxJumpChain"]
+                    )
+            speed = WORLD["speed"] * (
+                1 + max(0, player.jump_chain - 1) * WORLD["jumpBoost"]
+            )
+            player.x = max(
+                WORLD["minX"],
+                min(WORLD["maxX"], player.x + direction * speed / WORLD["tickRate"]),
+            )
             # Gravity continues even when an input packet is late or a player disconnects.
             previous_y = player.y
             player.vy += WORLD["gravity"] / WORLD["tickRate"]
@@ -143,7 +154,9 @@ class Game:
         for peer in self.peers.values():
             peer.send({"type": "mailbox_used", "side": side})
 
-    def handle(self, side: str, message: dict, session_token: str | None = None) -> dict | None:
+    def handle(
+        self, side: str, message: dict, session_token: str | None = None
+    ) -> dict | None:
         kind = message.get("type")
         player = self.players[side]
         other = "right" if side == "left" else "left"
@@ -158,15 +171,21 @@ class Game:
                 if not isinstance(item, dict):
                     raise ValueError("Invalid movement input.")
                 seq, direction = item.get("seq"), item.get("direction")
-                if (type(seq) is not int or seq != previous + 1
-                        or type(direction) is not int or direction not in (-1, 0, 1)
-                        or type(item.get("jump", False)) is not bool):
+                if (
+                    type(seq) is not int
+                    or seq != previous + 1
+                    or type(direction) is not int
+                    or direction not in (-1, 0, 1)
+                    or type(item.get("jump", False)) is not bool
+                ):
                     raise ValueError("Invalid movement sequence.")
                 previous = seq
             if len(player.inputs) + len(inputs) > 120:
                 raise ValueError("Too many queued movement inputs.")
             for item in inputs:
-                player.inputs.append((item["seq"], item["direction"], item.get("jump", False)))
+                player.inputs.append(
+                    (item["seq"], item["direction"], item.get("jump", False))
+                )
             player.received = previous
             return None
 
@@ -194,14 +213,26 @@ class Game:
                     raise ValueError("Invalid postcard.")
                 self.store.delete(side, postcard_id)
                 self.refresh_mail()
-            cards = self.store.inbox(side, include_read=True, limit=GALLERY_PAGE_SIZE + 1,
-                                    offset=page * GALLERY_PAGE_SIZE)
+            cards = self.store.inbox(
+                side,
+                include_read=True,
+                limit=GALLERY_PAGE_SIZE + 1,
+                offset=page * GALLERY_PAGE_SIZE,
+            )
             if kind == "delete" and not cards and page > 0:
                 page -= 1
-                cards = self.store.inbox(side, include_read=True, limit=GALLERY_PAGE_SIZE + 1,
-                                        offset=page * GALLERY_PAGE_SIZE)
-            return {"type": "gallery", "postcards": cards[:GALLERY_PAGE_SIZE], "page": page,
-                    "hasMore": len(cards) > GALLERY_PAGE_SIZE}
+                cards = self.store.inbox(
+                    side,
+                    include_read=True,
+                    limit=GALLERY_PAGE_SIZE + 1,
+                    offset=page * GALLERY_PAGE_SIZE,
+                )
+            return {
+                "type": "gallery",
+                "postcards": cards[:GALLERY_PAGE_SIZE],
+                "page": page,
+                "hasMore": len(cards) > GALLERY_PAGE_SIZE,
+            }
 
         if kind == "write":
             body = message.get("body")
@@ -209,41 +240,69 @@ class Game:
             stamp = message.get("stamp", 1)
             if not isinstance(body, str) or not 1 <= len(body.strip()) <= 1000:
                 raise ValueError("Write a message between 1 and 1,000 characters.")
-            if not isinstance(title, str) or len(title.strip()) > 60 or "\n" in title or "\r" in title:
-                raise ValueError("Keep the title to one line and at most 60 characters.")
+            if (
+                not isinstance(title, str)
+                or len(title.strip()) > 60
+                or "\n" in title
+                or "\r" in title
+            ):
+                raise ValueError(
+                    "Keep the title to one line and at most 60 characters."
+                )
             if type(stamp) is not int or stamp not in (1, 2, 3):
                 raise ValueError("Choose one of the three stamps.")
             image_id = message.get("imageId")
-            if image_id is not None and (not isinstance(image_id, str)
-                                        or not re.fullmatch(r"[a-f0-9]{32}", image_id)):
+            if image_id is not None and (
+                not isinstance(image_id, str)
+                or not re.fullmatch(r"[a-f0-9]{32}", image_id)
+            ):
                 raise ValueError("Invalid photo.")
             crop = message.get("crop", {"x": 0.5, "y": 0.5, "zoom": 1})
             if not isinstance(crop, dict) or any(
-                type(crop.get(key)) not in (int, float) or not lower <= crop[key] <= upper
+                type(crop.get(key)) not in (int, float)
+                or not lower <= crop[key] <= upper
                 or not math.isfinite(crop[key])
                 for key, lower, upper in (("x", 0, 1), ("y", 0, 1), ("zoom", 1, 5))
             ):
                 raise ValueError("Invalid photo position or zoom.")
             request_id = message.get("requestId")
-            if request_id is not None and (not isinstance(request_id, str)
-                                          or not re.fullmatch(r"[a-f0-9]{32}", request_id)):
+            if request_id is not None and (
+                not isinstance(request_id, str)
+                or not re.fullmatch(r"[a-f0-9]{32}", request_id)
+            ):
                 raise ValueError("Invalid postcard request.")
             if (image_id or request_id) and not session_token:
                 raise ValueError("Reconnect to the game to save this postcard.")
             owner = session_owner(side, session_token) if session_token else None
-            payload_hash = hashlib.sha256(json.dumps(
-                [body.strip(), title.strip(), stamp, image_id, crop], sort_keys=True,
-            ).encode()).hexdigest()
-            acknowledgement = {"type": "written", **({"requestId": request_id} if request_id else {})}
-            if request_id and self.store.completed_write(owner, request_id, payload_hash):
+            payload_hash = hashlib.sha256(
+                json.dumps(
+                    [body.strip(), title.strip(), stamp, image_id, crop],
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            acknowledgement = {
+                "type": "written",
+                **({"requestId": request_id} if request_id else {}),
+            }
+            if request_id and self.store.completed_write(
+                owner, request_id, payload_hash
+            ):
                 return acknowledgement
             if not self.nearby(side, WORLD["desks"][side]):
                 raise ValueError("Return to your desk to write a postcard.")
             if self.mail[side]["carrying"]:
                 raise ValueError("Deliver the postcard in your backpack first.")
-            self.store.write(side, body.strip(), stamp, title.strip(), image_id=image_id,
-                             crop=(crop["x"], crop["y"], crop["zoom"]), owner=owner,
-                             request_id=request_id, payload_hash=payload_hash)
+            self.store.write(
+                side,
+                body.strip(),
+                stamp,
+                title.strip(),
+                image_id=image_id,
+                crop=(crop["x"], crop["y"], crop["zoom"]),
+                owner=owner,
+                request_id=request_id,
+                payload_hash=payload_hash,
+            )
             self.refresh_mail()
             return acknowledgement
 

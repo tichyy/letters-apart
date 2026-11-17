@@ -55,9 +55,14 @@ export class Connection {
       }
       this.receive(message);
     };
-    socket.onclose = () => {
+    socket.onclose = event => {
       if (socket !== this.socket) return;
       this.ready = false;
+      if (event.code === 1008 && event.reason === 'Sign in to play.') {
+        this.side = null;
+        location.assign('/login');
+        return;
+      }
       if (this.side) {
         this.status('Reconnecting…');
         this.retry = window.setTimeout(() => this.connect(side), 1500);

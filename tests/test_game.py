@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from server.app import create_app
-from server.game import Game, Peer, WORLD
+from server.game import WORLD, Game, Peer
 from server.store import Store
 
 
@@ -77,7 +77,10 @@ def test_selected_stamp_survives_delivery_and_restart(game, tmp_path, stamp):
 
 
 def test_title_survives_delivery_and_restart(game, tmp_path):
-    game.handle("left", {"type": "write", "title": "  Hello from home  ", "body": "Thinking of you."})
+    game.handle(
+        "left",
+        {"type": "write", "title": "  Hello from home  ", "body": "Thinking of you."},
+    )
     deliver(game, "left")
     with closing(Store(tmp_path / "postcards.sqlite3")) as store:
         card = store.inbox("right")[0]
@@ -85,7 +88,9 @@ def test_title_survives_delivery_and_restart(game, tmp_path):
         assert card["body"] == "Thinking of you."
 
 
-@pytest.mark.parametrize("title", [None, True, [], "a" * 61, "Two\nlines", "Two\rlines"])
+@pytest.mark.parametrize(
+    "title", [None, True, [], "a" * 61, "Two\nlines", "Two\rlines"]
+)
 def test_invalid_title_is_not_saved(game, title):
     with pytest.raises(ValueError, match="title"):
         game.handle("left", {"type": "write", "title": title, "body": "Hello"})
@@ -149,14 +154,18 @@ def test_mailbox_lists_unread_cards_oldest_first_and_keeps_unseen_cards(game):
     assert game.mail["left"]["unread"] == 2
     game.handle("left", {"type": "read", "id": cards[0]["id"]})
     assert game.mail["left"]["unread"] == 1
-    assert [card["body"] for card in game.handle("left", {"type": "interact"})["postcards"]] == ["Second"]
+    assert [
+        card["body"] for card in game.handle("left", {"type": "interact"})["postcards"]
+    ] == ["Second"]
     game.handle("left", {"type": "read", "id": cards[1]["id"]})
     assert game.mail["left"]["unread"] == 0
     assert game.handle("left", {"type": "interact"}) is None
 
 
 @pytest.mark.parametrize("side", ["left", "right"])
-def test_home_gallery_keeps_received_cards_after_reading_and_restart(game, tmp_path, side):
+def test_home_gallery_keeps_received_cards_after_reading_and_restart(
+    game, tmp_path, side
+):
     other = "right" if side == "left" else "left"
     for body in ("First", "Second"):
         write(game, other, body)
@@ -188,9 +197,15 @@ def test_gallery_paginates_without_marking_unseen_postcards_read(game):
     first = game.handle("left", {"type": "gallery"})
     second = game.handle("left", {"type": "gallery", "page": 1})
     assert len(first["postcards"]) == 12 and first["hasMore"]
-    assert [card["body"] for card in second["postcards"]] == ["Card 2", "Card 1", "Card 0"]
+    assert [card["body"] for card in second["postcards"]] == [
+        "Card 2",
+        "Card 1",
+        "Card 0",
+    ]
     assert not second["hasMore"] and second["page"] == 1
-    assert not {card["id"] for card in first["postcards"]} & {card["id"] for card in second["postcards"]}
+    assert not {card["id"] for card in first["postcards"]} & {
+        card["id"] for card in second["postcards"]
+    }
     assert game.mail["left"]["unread"] == 15
     game.handle("left", {"type": "read", "id": first["postcards"][0]["id"]})
     assert game.mail["left"]["unread"] == 14
@@ -214,7 +229,9 @@ def test_library_delete_is_soft_and_persists(game, tmp_path, side):
     assert result == {"type": "gallery", "postcards": [], "page": 0, "hasMore": False}
     assert game.mail[side]["unread"] == 0
     assert game.store.inbox(side) == []
-    row = game.store.db.execute("SELECT body, deleted_at FROM postcards WHERE id = ?", (card["id"],)).fetchone()
+    row = game.store.db.execute(
+        "SELECT body, deleted_at FROM postcards WHERE id = ?", (card["id"],)
+    ).fetchone()
     assert row["body"] == card["body"] and row["deleted_at"] is not None
     assert game.handle(side, {"type": "delete", "id": card["id"]}) == result
     with closing(Store(tmp_path / "postcards.sqlite3")) as store:
@@ -233,11 +250,18 @@ def test_library_delete_only_allows_delivered_received_cards_at_home(game):
     game.handle("right", {"type": "delete", "id": incoming["id"]})
     assert game.store.inbox("left") == [incoming]
     write(game, "right", "Undelivered")
-    carried = game.store.db.execute("SELECT id FROM postcards WHERE delivered_at IS NULL").fetchone()[0]
+    carried = game.store.db.execute(
+        "SELECT id FROM postcards WHERE delivered_at IS NULL"
+    ).fetchone()[0]
     game.players["left"].x = WORLD["desks"]["left"]
     game.handle("left", {"type": "delete", "id": carried})
     assert game.store.summary("right")["carrying"]
-    assert game.store.db.execute("SELECT deleted_at FROM postcards WHERE id = ?", (carried,)).fetchone()[0] is None
+    assert (
+        game.store.db.execute(
+            "SELECT deleted_at FROM postcards WHERE id = ?", (carried,)
+        ).fetchone()[0]
+        is None
+    )
 
 
 def test_delete_last_card_on_page_returns_previous_page(game):
@@ -269,9 +293,16 @@ def test_read_markers_only_affect_delivered_mail_for_the_recipient(game, side):
     assert game.store.inbox(side) == [incoming]
 
     write(game, other, "Not delivered yet.")
-    carried_id = game.store.db.execute("SELECT id FROM postcards WHERE delivered_at IS NULL").fetchone()[0]
+    carried_id = game.store.db.execute(
+        "SELECT id FROM postcards WHERE delivered_at IS NULL"
+    ).fetchone()[0]
     game.handle(side, {"type": "read", "id": carried_id})
-    assert game.store.db.execute("SELECT read_at FROM postcards WHERE id = ?", (carried_id,)).fetchone()[0] is None
+    assert (
+        game.store.db.execute(
+            "SELECT read_at FROM postcards WHERE id = ?", (carried_id,)
+        ).fetchone()[0]
+        is None
+    )
     game.handle(side, {"type": "read", "id": incoming["id"]})
     assert game.mail[side]["unread"] == 0
     game.handle(side, {"type": "read", "id": incoming["id"]})
@@ -287,7 +318,9 @@ def test_invalid_read_marker_is_rejected(game, postcard_id):
 
 
 @pytest.mark.parametrize("side", ["left", "right"])
-def test_mailbox_checks_and_delivery_animate_for_both_players_without_moving_them(game, side):
+def test_mailbox_checks_and_delivery_animate_for_both_players_without_moving_them(
+    game, side
+):
     events = {peer: [] for peer in ("left", "right")}
     for peer in events:
         game.peers[peer] = SimpleNamespace(send=events[peer].append)
@@ -308,8 +341,10 @@ def test_mailbox_checks_and_delivery_animate_for_both_players_without_moving_the
     for messages in events.values():
         messages.clear()
     game.handle(other, {"type": "interact"})
-    assert all(messages == [used, {"type": "delivered", "sender": other, "recipient": side}]
-               for messages in events.values())
+    assert all(
+        messages == [used, {"type": "delivered", "sender": other, "recipient": side}]
+        for messages in events.values()
+    )
     assert (sender.x, sender.y) == sender_position
 
     # With no postcard left to deliver, the other mailbox does nothing for either client.
@@ -332,9 +367,16 @@ def test_mailbox_checks_and_delivery_animate_for_both_players_without_moving_the
 def test_movement_is_fixed_rate_bounded_and_stops(game):
     player = game.players["left"]
     start = player.x
-    game.handle("left", {"type": "input", "inputs": [
-        {"seq": 1, "direction": 1}, {"seq": 2, "direction": 1},
-    ]})
+    game.handle(
+        "left",
+        {
+            "type": "input",
+            "inputs": [
+                {"seq": 1, "direction": 1},
+                {"seq": 2, "direction": 1},
+            ],
+        },
+    )
     game.step()
     assert player.x == pytest.approx(start + WORLD["speed"] / WORLD["tickRate"])
     assert player.ack == 1
@@ -350,9 +392,16 @@ def test_movement_is_fixed_rate_bounded_and_stops(game):
 
 def test_invalid_input_batch_is_atomic(game):
     with pytest.raises(ValueError):
-        game.handle("left", {"type": "input", "inputs": [
-            {"seq": 1, "direction": 1}, {"seq": 2, "direction": 100},
-        ]})
+        game.handle(
+            "left",
+            {
+                "type": "input",
+                "inputs": [
+                    {"seq": 1, "direction": 1},
+                    {"seq": 2, "direction": 100},
+                ],
+            },
+        )
     assert not game.players["left"].inputs
     assert game.players["left"].received == 0
 
@@ -365,7 +414,9 @@ def test_longer_trip_still_delivers_in_15_to_30_seconds(game, side, direction):
     ticks = math.ceil(distance / WORLD["speed"] * WORLD["tickRate"])
     assert 15 <= ticks / WORLD["tickRate"] <= 30
     for seq in range(1, ticks + 1):
-        game.handle(side, {"type": "input", "inputs": [{"seq": seq, "direction": direction}]})
+        game.handle(
+            side, {"type": "input", "inputs": [{"seq": seq, "direction": direction}]}
+        )
         game.step()
     game.handle(side, {"type": "interact"})
     assert game.mail[other]["unread"] == 1
@@ -374,7 +425,9 @@ def test_longer_trip_still_delivers_in_15_to_30_seconds(game, side, direction):
 @pytest.mark.parametrize("side", ["left", "right"])
 def test_jump_syncs_prevents_double_jump_and_lands_without_more_inputs(game, side):
     player = game.players[side]
-    game.handle(side, {"type": "input", "inputs": [{"seq": 1, "direction": 1, "jump": True}]})
+    game.handle(
+        side, {"type": "input", "inputs": [{"seq": 1, "direction": 1, "jump": True}]}
+    )
     game.step()
     assert player.y < 0 and player.vy < 0
     snapshot = next(p for p in game.snapshot()["players"] if p["side"] == side)
@@ -382,9 +435,13 @@ def test_jump_syncs_prevents_double_jump_and_lands_without_more_inputs(game, sid
     for _ in range(12):
         game.step()
     previous_velocity = player.vy
-    game.handle(side, {"type": "input", "inputs": [{"seq": 2, "direction": 0, "jump": True}]})
+    game.handle(
+        side, {"type": "input", "inputs": [{"seq": 2, "direction": 0, "jump": True}]}
+    )
     game.step()
-    assert player.vy == pytest.approx(previous_velocity + WORLD["gravity"] / WORLD["tickRate"])
+    assert player.vy == pytest.approx(
+        previous_velocity + WORLD["gravity"] / WORLD["tickRate"]
+    )
     assert not game.nearby(side, WORLD["desks"][side])
     game.stop(side)
     for _ in range(WORLD["tickRate"]):
@@ -399,33 +456,59 @@ def test_held_jump_repeats_after_landing_and_caps_speed_boost(game, side, direct
     grounded_ticks = 0
     for seq in range(1, 501):
         previous_y, previous_x = player.y, player.x
-        game.handle(side, {"type": "input", "inputs": [{
-            "seq": seq, "direction": direction, "jump": True,
-        }]})
+        game.handle(
+            side,
+            {
+                "type": "input",
+                "inputs": [
+                    {
+                        "seq": seq,
+                        "direction": direction,
+                        "jump": True,
+                    }
+                ],
+            },
+        )
         game.step()
         if previous_y == 0 and player.y < 0:
             if takeoffs:
                 assert grounded_ticks >= WORLD["landingTicks"]
             takeoffs.append(player.jump_chain)
             speed = WORLD["speed"] * (1 + (player.jump_chain - 1) * WORLD["jumpBoost"])
-            assert player.x - previous_x == pytest.approx(direction * speed / WORLD["tickRate"])
+            assert player.x - previous_x == pytest.approx(
+                direction * speed / WORLD["tickRate"]
+            )
             grounded_ticks = 0
         elif player.y == 0:
             grounded_ticks += 1
             assert player.landing_ticks > 0
-    assert takeoffs[:WORLD["maxJumpChain"]] == list(range(1, WORLD["maxJumpChain"] + 1))
+    assert takeoffs[: WORLD["maxJumpChain"]] == list(
+        range(1, WORLD["maxJumpChain"] + 1)
+    )
     assert len(takeoffs) > WORLD["maxJumpChain"]
     assert max(takeoffs) == WORLD["maxJumpChain"]
 
     # Releasing jump lets the current arc finish, then restores normal walking.
     for seq in range(501, 621):
-        game.handle(side, {"type": "input", "inputs": [{
-            "seq": seq, "direction": direction, "jump": False,
-        }]})
+        game.handle(
+            side,
+            {
+                "type": "input",
+                "inputs": [
+                    {
+                        "seq": seq,
+                        "direction": direction,
+                        "jump": False,
+                    }
+                ],
+            },
+        )
         previous_x = player.x
         game.step()
     assert player.y == 0 and player.jump_chain == 0 and player.landing_ticks == 0
-    assert player.x - previous_x == pytest.approx(direction * WORLD["speed"] / WORLD["tickRate"])
+    assert player.x - previous_x == pytest.approx(
+        direction * WORLD["speed"] / WORLD["tickRate"]
+    )
 
 
 def receive_type(socket, kind):
@@ -441,9 +524,13 @@ def test_two_players_share_state_and_reconnect(tmp_path):
     with TestClient(app) as client:
         with client.websocket_connect("/ws/left?token=left-player-token") as left:
             assert receive_type(left, "welcome")["side"] == "left"
-            with client.websocket_connect("/ws/right?token=right-player-token") as right:
+            with client.websocket_connect(
+                "/ws/right?token=right-player-token"
+            ) as right:
                 assert receive_type(right, "welcome")["side"] == "right"
-                left.send_json({"type": "input", "inputs": [{"seq": 1, "direction": 1}]})
+                left.send_json(
+                    {"type": "input", "inputs": [{"seq": 1, "direction": 1}]}
+                )
                 for _ in range(120):
                     state = receive_type(right, "state")
                     player = state["players"][0]
@@ -451,11 +538,15 @@ def test_two_players_share_state_and_reconnect(tmp_path):
                         break
                 assert player["x"] > WORLD["desks"]["left"]
                 assert all(p["connected"] for p in state["players"])
-                with client.websocket_connect("/ws/left?token=different-player-token") as third:
+                with client.websocket_connect(
+                    "/ws/left?token=different-player-token"
+                ) as third:
                     assert receive_type(third, "occupied")["type"] == "occupied"
                 left.send_json({"type": "write", "body": "Saved in my backpack"})
                 assert receive_type(left, "written")["type"] == "written"
-                with client.websocket_connect("/ws/left?token=left-player-token") as resumed:
+                with client.websocket_connect(
+                    "/ws/left?token=left-player-token"
+                ) as resumed:
                     welcome = receive_type(resumed, "welcome")
                     assert welcome["players"][0]["carrying"]
                     assert welcome["players"][0]["x"] == pytest.approx(player["x"])
@@ -464,7 +555,8 @@ def test_two_players_share_state_and_reconnect(tmp_path):
 def test_websocket_rejects_other_origins(tmp_path):
     with TestClient(create_app(tmp_path / "cards.sqlite3")) as client:
         with client.websocket_connect(
-            "/ws/left?token=left-player-token", headers={"origin": "https://elsewhere.example"}
+            "/ws/left?token=left-player-token",
+            headers={"origin": "https://elsewhere.example"},
         ) as socket:
             with pytest.raises(WebSocketDisconnect):
                 socket.receive_json()
@@ -485,7 +577,9 @@ def test_failed_socket_writer_releases_its_home(tmp_path, monkeypatch):
         assert "left" not in app.state.game.peers
 
 
-def test_disconnect_during_close_releases_home_and_allows_reconnect(tmp_path, monkeypatch):
+def test_disconnect_during_close_releases_home_and_allows_reconnect(
+    tmp_path, monkeypatch
+):
     close_attempts = []
 
     async def disconnected_close(socket, *args, **kwargs):

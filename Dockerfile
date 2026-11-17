@@ -17,6 +17,7 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     PORT=8000 \
+    POSTCARD_REQUIRE_AUTH=1 \
     POSTCARD_DB=/data/postcards.sqlite3 \
     POSTCARD_IMAGES=/data/postcard-images
 
