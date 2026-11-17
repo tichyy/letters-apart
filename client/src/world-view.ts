@@ -3,13 +3,18 @@ import world from '../../world.json';
 import type { Direction, Motion, Player, Side } from './protocol';
 import { createRepeatingLayer, type RepeatingLayer } from './repeating-layer';
 import { Viewport, type ViewLayout } from './viewport';
+import { DogFollower } from './dog-follower';
 
 const sides: Side[] = ['left', 'right'];
 const groundY = 12;
+// Both two-frame rest animations match the character's 750 ms idle cycle.
+const dogRestFrameRate = 8 / 3;
 
 export class WorldView {
   private sprites = new Map<Side, Phaser.GameObjects.Sprite>();
   private mailboxes = new Map<Side, Phaser.GameObjects.Sprite>();
+  private dog!: Phaser.GameObjects.Sprite;
+  private dogFollower?: DogFollower;
   private remote: { time: number; player: Player }[] = [];
   private background!: Phaser.GameObjects.Image;
   private soil!: RepeatingLayer;
@@ -19,6 +24,11 @@ export class WorldView {
   constructor(private scene: Phaser.Scene) {}
 
   preload(onLoadError: () => void): void {
+    for (const [action, count] of [['idle', 2], ['run', 4], ['jump', 7], ['sit', 2]] as const) {
+      for (let frame = 1; frame <= count; frame++) {
+        this.scene.load.image(`dog-${action}-${frame}`, `/dog/dog_${action}_${frame}.png`);
+      }
+    }
     for (const name of ['pointer', 'hover', 'grab']) {
       this.scene.load.image(`cursor-${name}`, `/ui/hand_${name}.png`);
     }
@@ -89,6 +99,15 @@ export class WorldView {
       }
       sprite.play(`${prefix}-idle`).setFlipX(side === 'right');
     }
+
+    for (const [action, count, frameRate] of [['idle', 2, dogRestFrameRate], ['run', 4, 12], ['sit', 2, dogRestFrameRate]] as const) {
+      this.scene.anims.create({
+        key: `dog-${action}`, frames: Array.from({ length: count }, (_, i) => ({ key: `dog-${action}-${i + 1}` })),
+        frameRate, repeat: -1,
+      });
+    }
+    this.dog = this.scene.add.sprite(world.desks.left - 52, groundY, 'dog-idle-1')
+      .setOrigin(0.5, 1).setScale(2).setDepth(5).setAlpha(0.35).play('dog-idle');
 
     const viewport = new Viewport(this.scene, layout => this.resize(layout, playerX()));
     this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, viewport.attach());
@@ -170,7 +189,7 @@ export class WorldView {
     if (this.remote.length > 20) this.remote.shift();
   }
 
-  renderPlayers(players: Player[], side: Side, local: Motion, direction: Direction): void {
+  renderPlayers(players: Player[], side: Side, local: Motion, direction: Direction, delta: number): void {
     // Render the partner one snapshot interval behind, blending actual received positions.
     const renderTime = performance.now() - 65;
     while (this.remote.length > 2 && this.remote[1].time <= renderTime) this.remote.shift();
@@ -200,7 +219,30 @@ export class WorldView {
       if (action !== 'land' || sprite.anims.currentAnim?.key !== animation) sprite.play(animation, true);
       // Use the physics clock so a repeated jump doesn't cut the landing clip short.
       if (action === 'land') sprite.anims.setProgress(1 - landingTicks / world.landingTicks);
+      if (player.side === 'left') this.renderDog({ x, y }, moving ? (sprite.flipX ? -1 : 1) : 0, player.connected, delta);
     }
+  }
+
+  private renderDog(owner: Pick<Motion, 'x' | 'y'>, direction: Direction, connected: boolean, delta: number): void {
+    this.dogFollower ??= new DogFollower(owner.x, direction, world);
+    const { x, y, vy, landingTicks, moving, sitting, flipX } = this.dogFollower.update(owner, direction, connected, delta / 1000);
+    let footOffset = 0;
+    if (y < 0 || landingTicks > 0) {
+      const frame = y < 0
+        ? Phaser.Math.Clamp(Math.floor((vy + this.dogFollower.jumpSpeed) / (2 * this.dogFollower.jumpSpeed) * 6) + 1, 1, 6)
+        : landingTicks > world.landingTicks / 2 ? 6 : 7;
+      this.dog.anims.stop();
+      this.dog.setTexture(`dog-jump-${frame}`);
+      // Jump artwork moves inside its canvas; align its feet with the dog's jump arc.
+      footOffset = (32 - [32, 32, 26, 16, 21, 32, 32][frame - 1]) * 2;
+    } else if (sitting) {
+      this.dog.play('dog-sit', true);
+    } else {
+      this.dog.play(moving ? 'dog-run' : 'dog-idle', true);
+    }
+    const zoom = this.scene.cameras.main.zoom;
+    this.dog.setPosition(Math.round(x * zoom) / zoom, Math.round((groundY + y + footOffset) * zoom) / zoom)
+      .setFlipX(flipX).setAlpha(connected ? 1 : 0.35);
   }
 
   useMailbox(side: Side): void {

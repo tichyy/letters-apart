@@ -102,7 +102,7 @@ export class WorldScene extends Phaser.Scene {
       if (this.outgoing.length >= 2) this.flush();
     }
 
-    this.view.renderPlayers(this.players, this.connection.side!, this.local, direction);
+    this.view.renderPlayers(this.players, this.connection.side!, this.local, direction, delta);
     this.view.followPlayer(this.local.x);
     this.updateHint();
   }
