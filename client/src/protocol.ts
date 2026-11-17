@@ -40,8 +40,8 @@ export interface Player extends Motion {
 }
 
 export type Message =
-  | { type: 'welcome'; side: Side; players: Player[] }
-  | { type: 'state'; players: Player[] }
+  | { type: 'welcome'; side: Side; time?: number; players: Player[] }
+  | { type: 'state'; time?: number; players: Player[] }
   | { type: 'compose' }
   | { type: 'written'; requestId?: string }
   | { type: 'mailbox'; postcards: Postcard[] }

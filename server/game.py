@@ -1,4 +1,4 @@
-"""One shared, flat world. The server advances one input per fixed tick."""
+"""One shared world with sequenced inputs and bounded, elapsed-time catch-up."""
 
 import asyncio
 import hashlib
@@ -32,6 +32,9 @@ class Player:
     ack: int = 0
     received: int = 0
     inputs: deque = field(default_factory=deque)
+    credit: float = 0
+    paused: bool = False
+    actions: deque = field(default_factory=deque)
 
 
 @dataclass
@@ -41,9 +44,17 @@ class Peer:
     outbox: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=32))
 
     def send(self, message: dict) -> None:
-        # Snapshots are replaceable. Don't pile them up behind a slow connection.
-        if message["type"] == "state" and self.outbox.qsize() > 1:
-            return
+        # Keep the newest state under backpressure, preserving reliable events.
+        if message["type"] == "state":
+            reliable = []
+            while not self.outbox.empty():
+                queued = self.outbox.get_nowait()
+                if queued["type"] != "state":
+                    reliable.append(queued)
+            for queued in reliable:
+                self.outbox.put_nowait(queued)
+            if self.outbox.full():
+                return
         self.outbox.put_nowait(message)
 
     async def write(self) -> None:
@@ -61,10 +72,12 @@ class Game:
         }
         self.peers: dict[str, Peer] = {}
         self.mail = {side: store.summary(side) for side in SIDES}
+        self.time = 0.0
 
     def snapshot(self) -> dict:
         return {
             "type": "state",
+            "time": self.time,
             "players": [
                 {
                     "side": p.side,
@@ -83,48 +96,76 @@ class Game:
             ],
         }
 
-    def step(self) -> None:
+    def step(self, seconds: float = 1 / WORLD["tickRate"]) -> None:
+        self.time += seconds * 1000
         for player in self.players.values():
-            player.moving = False
-            direction = 0
-            if player.inputs:
+            # Credit is earned by wall time, not loop iterations. Delayed packets
+            # can catch up without granting faster-than-real-time movement.
+            player.credit = min(
+                WORLD["tickRate"], player.credit + seconds * WORLD["tickRate"]
+            )
+            while player.inputs and player.credit >= 1 - 1e-9:
                 seq, direction, jump = player.inputs.popleft()
-                player.jump_held = jump
+                player.credit -= 1
+                player.paused = False
                 player.ack = seq
-                player.moving = direction != 0
-                if direction:
-                    player.facing = direction
-            if player.y == 0:
-                if not player.jump_held:
-                    player.jump_chain = 0
-                player.landing_ticks = max(0, player.landing_ticks - 1)
-                if player.jump_held and player.landing_ticks == 0:
-                    player.vy = -WORLD["jumpSpeed"]
-                    player.jump_chain = min(
-                        player.jump_chain + 1, WORLD["maxJumpChain"]
-                    )
-            speed = WORLD["speed"] * (
-                1 + max(0, player.jump_chain - 1) * WORLD["jumpBoost"]
-            )
-            player.x = max(
-                WORLD["minX"],
-                min(WORLD["maxX"], player.x + direction * speed / WORLD["tickRate"]),
-            )
-            # Gravity continues even when an input packet is late or a player disconnects.
-            previous_y = player.y
-            player.vy += WORLD["gravity"] / WORLD["tickRate"]
-            player.y = min(0, player.y + player.vy / WORLD["tickRate"])
-            if player.y == 0:
-                player.vy = 0
-                if previous_y < 0:
-                    player.landing_ticks = WORLD["landingTicks"]
+                self._move(player, direction, jump)
+                while player.actions and player.actions[0][0] <= player.ack:
+                    _, message, token = player.actions.popleft()
+                    peer = self.peers.get(player.side)
+                    try:
+                        response = self.handle(player.side, message, token)
+                    except ValueError as error:
+                        response = {"type": "error", "message": str(error)}
+                    if response and peer:
+                        peer.send(response)
+            # Active prediction advances physics once per input on both ends.
+            # Explicitly paused/disconnected players still finish falling.
+            if player.paused or player.side not in self.peers:
+                while (
+                    not player.inputs
+                    and player.credit >= 1 - 1e-9
+                    and (player.y < 0 or player.vy < 0 or player.landing_ticks > 0)
+                ):
+                    player.credit -= 1
+                    self._move(player, 0, False)
+
+    def _move(self, player: Player, direction: int, jump: bool) -> None:
+        player.jump_held = jump
+        player.moving = direction != 0
+        if direction:
+            player.facing = direction
+        if player.y == 0:
+            if not jump:
+                player.jump_chain = 0
+            player.landing_ticks = max(0, player.landing_ticks - 1)
+            if jump and player.landing_ticks == 0:
+                player.vy = -WORLD["jumpSpeed"]
+                player.jump_chain = min(player.jump_chain + 1, WORLD["maxJumpChain"])
+        speed = WORLD["speed"] * (
+            1 + max(0, player.jump_chain - 1) * WORLD["jumpBoost"]
+        )
+        player.x = max(
+            WORLD["minX"],
+            min(WORLD["maxX"], player.x + direction * speed / WORLD["tickRate"]),
+        )
+        previous_y = player.y
+        player.vy += WORLD["gravity"] / WORLD["tickRate"]
+        player.y = min(0, player.y + player.vy / WORLD["tickRate"])
+        if player.y == 0:
+            player.vy = 0
+            if previous_y < 0:
+                player.landing_ticks = WORLD["landingTicks"]
 
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
         deadline = loop.time()
+        previous = deadline - 1 / WORLD["tickRate"]
         tick = 0
         while True:
-            self.step()
+            now = loop.time()
+            self.step(max(0, now - previous))
+            previous = now
             tick += 1
             if tick % 2 == 0:
                 state = self.snapshot()
@@ -138,7 +179,11 @@ class Game:
     def stop(self, side: str) -> None:
         player = self.players[side]
         player.inputs.clear()
-        player.ack = player.received
+        # A reconnect restarts sequencing from the last input actually applied.
+        player.received = player.ack
+        player.actions.clear()
+        player.credit = 0
+        player.paused = True
         player.moving = False
         player.jump_held = False
         player.jump_chain = 0
@@ -160,6 +205,18 @@ class Game:
         kind = message.get("type")
         player = self.players[side]
         other = "right" if side == "left" else "left"
+
+        if kind in ("interact", "gallery", "stop"):
+            after = message.get(
+                "after", player.received if kind == "stop" else player.ack
+            )
+            if type(after) is not int or not 0 <= after <= player.received:
+                raise ValueError("Invalid interaction sequence.")
+            if after > player.ack:
+                if len(player.actions) >= 4:
+                    raise ValueError("Please wait for your previous interaction.")
+                player.actions.append((after, {**message, "after": after}, session_token))
+                return None
 
         if kind == "input":
             inputs = message.get("inputs")
@@ -187,10 +244,14 @@ class Game:
                     (item["seq"], item["direction"], item.get("jump", False))
                 )
             player.received = previous
+            player.paused = False
             return None
 
         if kind == "stop":
-            self.stop(side)
+            player.paused = True
+            player.moving = False
+            player.jump_held = False
+            player.jump_chain = 0
             return None
 
         if kind == "read":

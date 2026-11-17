@@ -97,14 +97,20 @@ def create_app(
         game.stop(side)
         peer = Peer(socket, token)
         game.peers[side] = peer
+        game.players[side].paused = False
         peer.send(
-            {"type": "welcome", "side": side, "players": game.snapshot()["players"]}
+            {
+                "type": "welcome", "side": side, "time": game.time,
+                "players": game.snapshot()["players"],
+            }
         )
         writer = asyncio.create_task(peer.write())
 
         async def receive() -> None:
             while True:
                 raw = await socket.receive_text()
+                if game.peers.get(side) is not peer:
+                    return
                 if len(raw) > 8192:
                     await socket.close(code=1009, reason="Message too large.")
                     return

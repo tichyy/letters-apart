@@ -16,7 +16,7 @@ export class WorldScene extends Phaser.Scene {
   private pending: Input[] = [];
   private outgoing: Input[] = [];
   private seq = 0;
-  private interaction: { seq: number; type: 'interact' | 'gallery' } | null = null;
+  private correction = { x: 0, y: 0 };
   private local: Motion = { x: 0, y: 0, vy: 0, jumpChain: 0, landingTicks: 0 };
   private accumulator = 0;
   private active = false;
@@ -39,12 +39,14 @@ export class WorldScene extends Phaser.Scene {
 
   receive(message: Message): void {
     if (message.type !== 'welcome' && message.type !== 'state') return;
+    const previous = this.players.length ? {
+      x: this.local.x + this.correction.x, y: this.local.y + this.correction.y,
+    } : undefined;
     this.players = message.players;
     const own = this.players.find(player => player.side === this.connection.side);
     if (!own) return;
     if (message.type === 'welcome') {
       this.seq = own.ack;
-      this.interaction = null;
       this.pending = [];
       this.outgoing = [];
       this.local = { ...own };
@@ -53,35 +55,34 @@ export class WorldScene extends Phaser.Scene {
       this.pending = this.pending.filter(input => input.seq > own.ack);
       this.local = this.pending.reduce<Motion>(move, own);
     }
-    // Interact only after the server has applied the movement already shown locally.
-    if (this.interaction !== null && own.ack >= this.interaction.seq) {
-      const type = this.interaction.type;
-      this.interaction = null;
-      this.connection.send({ type });
+    if (previous) {
+      this.correction = { x: previous.x - this.local.x, y: previous.y - this.local.y };
     }
     const partner = this.players.find(player => player.side !== own.side)!;
-    this.view.recordPartner(partner, message.type === 'welcome');
+    this.view.recordPartner(partner, message.type === 'welcome', message.time);
   }
 
   interact(type: 'interact' | 'gallery' = 'interact'): void {
-    if (!this.connection.ready || this.interaction !== null) return;
+    if (!this.connection.ready) return;
     const side = this.connection.side!;
     if (type === 'gallery' && !this.nearby(world.desks[side])) return;
     if (![world.desks[side], world.mailboxes.left, world.mailboxes.right].some(x => this.nearby(x))) return;
     this.flush();
-    this.interaction = { seq: this.seq, type };
+    this.connection.send({ type, after: this.seq });
   }
 
   stop(): void {
-    this.interaction = null;
     this.controls.release();
+    this.accumulator = 0;
     this.flush();
-    this.connection.send({ type: 'stop' });
+    this.connection.send({ type: 'stop', after: this.seq });
   }
 
   private flush(): void {
-    if (this.outgoing.length && this.connection.send({ type: 'input', inputs: this.outgoing })) {
-      this.outgoing = [];
+    while (this.outgoing.length) {
+      const inputs = this.outgoing.slice(0, 8);
+      if (!this.connection.send({ type: 'input', inputs })) return;
+      this.outgoing.splice(0, inputs.length);
     }
   }
 
@@ -92,6 +93,12 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
     const direction = this.controls.direction();
+    if (this.pending.length >= 120) {
+      // Recover from a prolonged stall rather than freezing with growing time debt.
+      this.accumulator = 0;
+      this.connection.connect(this.connection.side!);
+      return;
+    }
     this.accumulator += Math.min(delta, 100);
     while (this.accumulator >= stepTime && this.pending.length < 120) {
       this.accumulator -= stepTime;
@@ -102,8 +109,12 @@ export class WorldScene extends Phaser.Scene {
       if (this.outgoing.length >= 2) this.flush();
     }
 
-    this.view.renderPlayers(this.players, this.connection.side!, this.local, direction, delta);
-    this.view.followPlayer(this.local.x);
+    const decay = Math.exp(-Math.min(delta, 100) / 100);
+    this.correction.x *= decay;
+    this.correction.y *= decay;
+    const rendered = { ...this.local, x: this.local.x + this.correction.x, y: Math.min(0, this.local.y + this.correction.y) };
+    this.view.renderPlayers(this.players, this.connection.side!, rendered, direction, delta);
+    this.view.followPlayer(rendered.x);
     const anchor = this.ui.noticeAnchor;
     if (anchor) {
       const { x, y } = this.view.noticeAnchor(anchor);

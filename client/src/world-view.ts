@@ -17,6 +17,11 @@ export class WorldView {
   private dog!: Phaser.GameObjects.Sprite;
   private dogFollower?: DogFollower;
   private remote: { time: number; player: Player }[] = [];
+  private remoteOffset = 0;
+  private remoteDelay = 65;
+  private remoteTime = -Infinity;
+  private remoteArrival = 0;
+  private remoteRendered?: { x: number; y: number };
   private background!: Phaser.GameObjects.Image;
   private soil!: RepeatingLayer;
   private scenery: { layer: RepeatingLayer; speed: number }[] = [];
@@ -194,15 +199,29 @@ export class WorldView {
     };
   }
 
-  recordPartner(player: Player, reset: boolean): void {
-    if (reset) this.remote = [];
-    this.remote.push({ time: performance.now(), player });
+  recordPartner(player: Player, reset: boolean, time = performance.now()): void {
+    const arrival = performance.now();
+    const last = this.remote.at(-1);
+    if (reset || !last) {
+      this.remote = [];
+      this.remoteOffset = arrival - time;
+      this.remoteDelay = 65;
+      this.remoteTime = -Infinity;
+      this.remoteRendered = undefined;
+    } else {
+      this.remoteOffset = Math.min(this.remoteOffset, arrival - time);
+      const jitter = Math.max(0, arrival - this.remoteArrival - (time - last.time));
+      this.remoteDelay = Math.min(180, Math.max(65, this.remoteDelay * 0.98, 65 + jitter));
+    }
+    this.remoteArrival = arrival;
+    this.remote.push({ time, player });
     if (this.remote.length > 20) this.remote.shift();
   }
 
   renderPlayers(players: Player[], side: Side, local: Motion, direction: Direction, delta: number): void {
-    // Render the partner one snapshot interval behind, blending actual received positions.
-    const renderTime = performance.now() - 65;
+    // Use simulation timestamps, not packet arrival spacing. Buffer jitter without
+    // rewinding the playback clock when its delay grows.
+    const renderTime = this.remoteTime = Math.max(this.remoteTime, performance.now() - this.remoteOffset - this.remoteDelay);
     while (this.remote.length > 2 && this.remote[1].time <= renderTime) this.remote.shift();
     const zoom = this.scene.cameras.main.zoom;
     for (const player of players) {
@@ -219,7 +238,22 @@ export class WorldView {
         landingTicks = Phaser.Math.Linear(a.player.landingTicks, b.player.landingTicks, fraction);
         moving = b.player.moving;
         facing = b.player.facing;
+        const ahead = Math.min(100, Math.max(0, renderTime - b.time)) / 1000;
+        const maxSpeed = world.speed * (1 + (world.maxJumpChain - 1) * world.jumpBoost);
+        if (ahead) {
+          const velocity = Phaser.Math.Clamp((b.player.x - a.player.x) * 1000 / Math.max(1, b.time - a.time), -maxSpeed, maxSpeed);
+          x = Phaser.Math.Clamp(x + (moving ? velocity * ahead : 0), world.minX, world.maxX);
+          y = Math.min(0, y + b.player.vy * ahead);
+        }
+        // Bound correction speed when a burst finally arrives after an outage.
+        if (this.remoteRendered) {
+          const seconds = Math.min(delta, 100) / 1000;
+          const blend = 1 - Math.exp(-seconds / 0.04);
+          x = this.remoteRendered.x + Phaser.Math.Clamp((x - this.remoteRendered.x) * blend, -maxSpeed * seconds * 2, maxSpeed * seconds * 2);
+          y = this.remoteRendered.y + Phaser.Math.Clamp((y - this.remoteRendered.y) * blend, -world.jumpSpeed * seconds * 2, world.jumpSpeed * seconds * 2);
+        }
       }
+      if (!own) this.remoteRendered = { x, y };
       const sprite = this.sprites.get(player.side)!;
       // Snap drawing to the zoomed pixel grid, keeping movement precise.
       sprite.setPosition(Math.round(x * zoom) / zoom, Math.round((groundY + y) * zoom) / zoom)
