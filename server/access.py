@@ -92,7 +92,7 @@ class Access:
         except ValueError:
             same_origin = False
         if not same_origin:
-            return login_page("Open this sign-in page directly to continue.", 403)
+            return login_page("Refresh this sign-in page and try again.", 403)
         if (
             request.headers.get("content-type", "").split(";", 1)[0]
             != "application/x-www-form-urlencoded"
@@ -240,7 +240,9 @@ button {{ background: #77503c; color: #fff3dc; cursor: pointer; }}
         status_code=status,
         headers={
             "Cache-Control": "no-store",
-            "Referrer-Policy": "no-referrer",
+            # no-referrer makes browsers send Origin: null for form POSTs,
+            # which would fail the login's same-origin check.
+            "Referrer-Policy": "same-origin",
             "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
         },

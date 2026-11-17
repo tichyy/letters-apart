@@ -31,6 +31,22 @@ def sign_in(client, code=LEFT_CODE):
     )
 
 
+def test_login_page_preserves_origin_for_its_own_form(private_app):
+    with TestClient(private_app, base_url=ORIGIN) as client:
+        page = client.get("/login")
+        # TestClient does not apply browser referrer policies. Guard against a
+        # policy that turns a legitimate form POST's Origin into null.
+        assert page.headers["referrer-policy"] == "same-origin"
+        rejected = client.post(
+            "/login", data={"code": LEFT_CODE}, headers={"Origin": "null"}
+        )
+        assert rejected.status_code == 403
+        assert rejected.headers["referrer-policy"] == "same-origin"
+        assert COOKIE not in client.cookies
+        assert sign_in(client).status_code == 303
+        assert COOKIE in client.cookies
+
+
 def test_all_game_routes_require_access_but_healthcheck_stays_public(private_app):
     with TestClient(private_app, base_url=ORIGIN) as client:
         for path in (
