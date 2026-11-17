@@ -112,6 +112,8 @@ export class WorldScene extends Phaser.Scene {
     const decay = Math.exp(-Math.min(delta, 100) / 100);
     this.correction.x *= decay;
     this.correction.y *= decay;
+    if (Math.abs(this.correction.x) < 0.1) this.correction.x = 0;
+    if (Math.abs(this.correction.y) < 0.1) this.correction.y = 0;
     const rendered = { ...this.local, x: this.local.x + this.correction.x, y: Math.min(0, this.local.y + this.correction.y) };
     this.view.renderPlayers(this.players, this.connection.side!, rendered, direction, delta);
     this.view.followPlayer(rendered.x);

@@ -41,6 +41,26 @@ function client() {
   return { scene, connection, sent };
 }
 
+function remoteView() {
+  const view = new WorldView({ cameras: { main: { zoom: 1 } } });
+  const sprite = () => ({
+    anims: { currentAnim: null, setProgress() {} },
+    setPosition(x, y) { this.x = x; this.y = y; return this; },
+    setAlpha() { return this; }, setFlipX() { return this; },
+    play(key) { this.anims.currentAnim = { key }; return this; },
+  });
+  view.sprites.set('left', sprite());
+  view.sprites.set('right', sprite());
+  view.renderDog = () => {};
+  return view;
+}
+
+function drawRemote(view, state, now) {
+  globalThis.networkTestTime = now;
+  view.renderPlayers([state, player('right')], 'right', player('right'), 0, dt);
+  return view.sprites.get('left');
+}
+
 test('interaction sends its input dependency immediately, without waiting for a round trip', () => {
   const { scene, sent } = client();
   scene.update(0, dt);
@@ -88,18 +108,18 @@ test('prolonged acknowledgement loss reconnects once instead of accumulating fro
   assert.ok(scene.local.x > world.desks.left);
 });
 
+test('a local landing correction also finishes exactly instead of keeping a fall pose', () => {
+  const { scene } = client();
+  scene.local.y = -40;
+  scene.receive({ type: 'state', time: dt, players: [player('left'), player('right')] });
+  for (let frame = 0; frame < 60; frame++) scene.update(frame * dt, dt);
+  assert.equal(scene.drawn.y, 0);
+  assert.equal(scene.correction.y, 0);
+});
+
 test('remote snapshots remain smooth and time never rewinds during delayed packet bursts', () => {
   globalThis.networkTestTime = 50;
-  const view = new WorldView({ cameras: { main: { zoom: 1 } } });
-  const sprite = () => ({
-    anims: { currentAnim: null, setProgress() {} },
-    setPosition(x, y) { this.x = x; this.y = y; return this; },
-    setAlpha() { return this; }, setFlipX() { return this; },
-    play(key) { this.anims.currentAnim = { key }; return this; },
-  });
-  view.sprites.set('left', sprite());
-  view.sprites.set('right', sprite());
-  view.renderDog = () => {};
+  const view = remoteView();
   const initial = player('left', 1000);
   view.recordPartner(initial, true, 0);
   let due = 0;
@@ -122,4 +142,56 @@ test('remote snapshots remain smooth and time never rewinds during delayed packe
     if (previousX !== undefined) assert.ok(Math.abs(x - previousX) <= 6);
     previousX = x;
   }
+});
+
+test('a remote landing reaches ground exactly and leaves the falling animation', () => {
+  globalThis.networkTestTime = 0;
+  const view = remoteView();
+  let state = { ...player('left', 1000, 1), y: -40, vy: 200 };
+  view.recordPartner(state, true, 0);
+  for (let frame = 0; frame < 120; frame++) {
+    const now = frame * dt;
+    globalThis.networkTestTime = now;
+    if (frame === 6) state = { ...state, y: 0, vy: 0, landingTicks: 9 };
+    if (frame >= 6 && frame % 2 === 0) {
+      state = { ...state, ack: frame, landingTicks: Math.max(0, 15 - frame) };
+      view.recordPartner(state, false, now);
+    }
+    drawRemote(view, state, now);
+  }
+  const sprite = view.sprites.get('left');
+  assert.equal(view.remoteRendered.y, 0);
+  assert.equal(sprite.y, 12);
+  assert.match(sprite.anims.currentAnim.key, /-idle$/);
+});
+
+test('repeated stale run flags settle to idle instead of running in place', () => {
+  globalThis.networkTestTime = 0;
+  const view = remoteView();
+  view.recordPartner(player('left', 995), true, 0);
+  const state = { ...player('left', 1000, 2), moving: true };
+  for (let frame = 1; frame < 180; frame++) {
+    const now = frame * dt;
+    globalThis.networkTestTime = now;
+    if (frame % 2 === 0) view.recordPartner(state, false, now);
+    drawRemote(view, state, now);
+  }
+  assert.match(view.sprites.get('left').anims.currentAnim.key, /-idle$/);
+  assert.ok(view.remoteRendered.x < 1025);
+});
+
+test('a stalled mid-jump pose falls, lands, and settles without fresh inputs', () => {
+  globalThis.networkTestTime = 0;
+  const view = remoteView();
+  const state = { ...player('left', 1000, 10), y: -60, vy: -200, moving: true };
+  view.recordPartner(state, true, 0);
+  for (let frame = 1; frame < 180; frame++) {
+    const now = frame * dt;
+    globalThis.networkTestTime = now;
+    // The server can still send snapshots while the owner's inputs are stalled.
+    if (frame % 2 === 0) view.recordPartner(state, false, now);
+    drawRemote(view, state, now);
+  }
+  assert.equal(view.remoteRendered.y, 0);
+  assert.match(view.sprites.get('left').anims.currentAnim.key, /-idle$/);
 });
