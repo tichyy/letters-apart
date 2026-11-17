@@ -4,6 +4,7 @@ import type { Direction, Motion, Player, Side } from './protocol';
 import { createRepeatingLayer, type RepeatingLayer } from './repeating-layer';
 import { Viewport, type ViewLayout } from './viewport';
 import { DogFollower } from './dog-follower';
+import { snapFollowerX } from './pixel-grid';
 
 const sides: Side[] = ['left', 'right'];
 const groundY = 12;
@@ -251,7 +252,9 @@ export class WorldView {
       this.dog.play(moving ? 'dog-run' : 'dog-idle', true);
     }
     const zoom = this.scene.cameras.main.zoom;
-    this.dog.setPosition(Math.round(x * zoom) / zoom, Math.round((groundY + y + footOffset) * zoom) / zoom)
+    // Use the owner's rendered pixel grid. Rounding both world positions
+    // independently makes a steady following gap alternate by one screen pixel.
+    this.dog.setPosition(snapFollowerX(x, owner.x, zoom), Math.round((groundY + y + footOffset) * zoom) / zoom)
       .setFlipX(flipX).setAlpha(connected ? 1 : 0.35);
   }
 
