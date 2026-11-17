@@ -52,6 +52,12 @@ def create_app(database: Path | None = None, *, image_storage: ImageStorage | No
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
     app.include_router(image_router)
 
+    @app.get("/healthz", include_in_schema=False)
+    async def health():
+        # Lifespan initializes persistent storage before accepting requests.
+        app.state.game.store.db.execute("SELECT 1").fetchone()
+        return {"status": "ok"}
+
     @app.websocket("/ws/{side}")
     async def connect(socket: WebSocket, side: str, token: str = ""):
         await socket.accept()

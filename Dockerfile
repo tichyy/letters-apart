@@ -15,7 +15,10 @@ FROM python:3.14-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:0.13.8 /uv /usr/local/bin/uv
 WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    PORT=8000 \
+    POSTCARD_DB=/data/postcards.sqlite3 \
+    POSTCARD_IMAGES=/data/postcard-images
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-cache
@@ -28,4 +31,7 @@ RUN useradd --uid 10001 --user-group --no-create-home --no-log-init app \
 
 USER app
 
-CMD ["/app/.venv/bin/uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+EXPOSE 8000
+
+# exec passes shutdown signals to Uvicorn; one worker owns the shared game state.
+CMD ["sh", "-c", "exec /app/.venv/bin/uvicorn server.app:app --host 0.0.0.0 --port \"$PORT\" --workers 1"]

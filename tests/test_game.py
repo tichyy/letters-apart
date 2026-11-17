@@ -509,6 +509,9 @@ def test_game_entry_page_revalidates_and_serves_rebuilt_client(tmp_path, monkeyp
     index.write_text('<script src="/assets/old-client.js"></script>')
     monkeypatch.setattr("server.app.ROOT", tmp_path)
     with TestClient(create_app(tmp_path / "cards.sqlite3")) as client:
+        health = client.get("/healthz")
+        assert health.status_code == 200
+        assert health.json() == {"status": "ok"}
         response = client.get("/")
         assert response.headers["cache-control"] == "no-cache"
         index.write_text('<script src="/assets/rebuilt-client.js"></script>')
