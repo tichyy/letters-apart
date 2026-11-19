@@ -57,15 +57,17 @@ export class WorldView {
   create(playerX: () => number): void {
     this.background = this.scene.add.image(0, 0, 'Sky').setOrigin(0).setDepth(-4);
     for (const [name, speed, depth] of [['Clouds', 0.15, -3], ['Bushes', 0.4, -2], ['Trees', 0.7, -1]] as const) {
-      const texture = name === 'Bushes' ? this.mirroredTexture(name) : name;
-      const layer = createRepeatingLayer(this.scene, { texture, y: -477, depth });
+      const layer = createRepeatingLayer(this.scene, { texture: name, y: -477, depth, mirror: name === 'Bushes' });
       this.scenery.push({ layer, speed });
     }
     // The first background layer is foreground grass, overlapping feet and mailbox posts.
-    const ground = createRepeatingLayer(this.scene, { texture: this.mirroredTexture('Ground'), y: -483, depth: 8 });
+    // Mirror by flipping tiles, not by drawing a mirrored copy into a canvas: phones
+    // can discard canvas memory while the page is in the background (e.g. the camera
+    // is open), and the ground would come back blank. Image textures always reload.
+    const ground = createRepeatingLayer(this.scene, { texture: 'Ground', y: -483, depth: 8, mirror: true });
     this.scenery.push({ layer: ground, speed: 1 });
-    this.scene.textures.get('Ground-repeat').add('soil', 0, 0, 168, 640, 12);
-    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground-repeat', frame: 'soil', y: 55, depth: 9 });
+    this.scene.textures.get('Ground').add('soil', 0, 0, 168, this.scene.textures.get('Ground').source[0].width, 12);
+    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: 55, depth: 9, mirror: true });
 
     const trees = this.scene.textures.get('Trees');
     trees.add('foreground-small', 0, 61, 95, 75, 69);
@@ -113,20 +115,6 @@ export class WorldView {
 
     const viewport = new Viewport(this.scene, layout => this.resize(layout, playerX()));
     this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, viewport.attach());
-  }
-
-  private mirroredTexture(key: string): string {
-    // Alternating the artwork with its reflection makes the repeat edges meet.
-    const source = this.scene.textures.get(key).getSourceImage() as HTMLImageElement;
-    const texture = this.scene.textures.createCanvas(`${key}-repeat`, source.width * 2, source.height)!;
-    const context = texture.context;
-    context.imageSmoothingEnabled = false;
-    context.drawImage(source, 0, 0);
-    context.translate(source.width * 2, 0);
-    context.scale(-1, 1);
-    context.drawImage(source, 0, 0);
-    texture.refresh();
-    return texture.key;
   }
 
   private resize({ width, height, cameraZoom }: ViewLayout, playerX: number): void {

@@ -7,6 +7,8 @@ interface LayerOptions {
   frame?: string;
   y: number;
   depth: number;
+  // Flip every other tile, so artwork whose edges don't match still repeats seamlessly.
+  mirror?: boolean;
 }
 
 export interface RepeatingLayer {
@@ -63,11 +65,14 @@ class ImageLayer implements RepeatingLayer {
   scroll(left: number, offset: number): void {
     this.left = left;
     this.offset = offset;
-    const phase = ((offset % this.tileWidth) + this.tileWidth) % this.tileWidth;
+    const first = Math.floor(offset / this.tileWidth);
+    const phase = offset - first * this.tileWidth;
     for (let i = 0; i < this.images.length; i++) {
       const column = i % this.columns;
       const row = Math.floor(i / this.columns);
       this.images[i].setPosition(left - phase + column * this.tileWidth, this.options.y + row * this.tileHeight);
+      // Parity of the tile's position in the world, so the pattern doesn't change while scrolling.
+      if (this.options.mirror) this.images[i].setFlipX(Math.abs(first + column) % 2 === 1);
     }
   }
 }

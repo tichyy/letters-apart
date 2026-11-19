@@ -27,6 +27,7 @@ function createScene() {
       setDepth(depth) { this.depth = depth; return this; },
       setPosition(x, y) { this.x = x; this.y = y; return this; },
       setCrop(...crop) { this.crop = crop; return this; },
+      setFlipX(flip) { this.flipX = flip; return this; },
       destroy() { this.destroyed = true; },
     };
   }
@@ -95,4 +96,26 @@ test('repeats soil vertically, crops the last row, and releases excess images af
   layer.resize(390, 36);
   assert.equal(scene.images.filter(image => !image.destroyed).length, 2);
   assert.deepEqual(scene.images[0].crop, [], 'a full row must clear the previous crop');
+});
+
+test('mirrored layers flip alternate tiles by world position, without canvas copies', () => {
+  const scene = createScene();
+  const layer = createRepeatingLayer(scene, { texture: 'trees', y: -477, depth: -1, mirror: true });
+  layer.resize(390, 540);
+  // A tile keeps its flip as it scrolls past, in either direction.
+  const flipAt = (offset, worldTile) => {
+    layer.scroll(0, offset);
+    const first = Math.floor(offset / 960);
+    return scene.images[worldTile - first].flipX;
+  };
+  assert.equal(flipAt(0, 0), false);
+  assert.equal(flipAt(0, 1), true);
+  assert.equal(flipAt(500, 1), true);
+  assert.equal(flipAt(1000, 1), true);
+  assert.equal(flipAt(1000, 2), false);
+  assert.equal(flipAt(-10, -1), true);
+  assert.equal(flipAt(-10, 0), false);
+  const plain = createScene();
+  createRepeatingLayer(plain, { texture: 'trees', y: 0, depth: 0 }).resize(390, 540);
+  assert.ok(plain.images.every(image => image.flipX === undefined), 'unmirrored layers never flip');
 });
