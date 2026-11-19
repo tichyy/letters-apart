@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from pillow_heif import from_pillow
 
+from conftest import join
 from server.app import create_app
 from server.game import WORLD, Game
 from server.image_routes import ImageService
@@ -64,9 +65,9 @@ def photo_bytes(format="PNG", size=(240, 160)):
 def session(tmp_path):
     app = create_app(tmp_path / "cards.sqlite3")
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws/left?token={TOKEN}") as left:
+        with join(client, "/ws/left", TOKEN) as left:
             receive_type(left, "welcome")
-            with client.websocket_connect(f"/ws/right?token={RIGHT_TOKEN}") as right:
+            with join(client, "/ws/right", RIGHT_TOKEN) as right:
                 receive_type(right, "welcome")
                 yield app, client, left, right
 
@@ -332,7 +333,7 @@ def test_pending_expiry_orphan_cleanup_and_restart(tmp_path):
     path = tmp_path / "cards.sqlite3"
     app = create_app(path)
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws/left?token={TOKEN}") as left:
+        with join(client, "/ws/left", TOKEN) as left:
             receive_type(left, "welcome")
             assert (
                 client.post(
@@ -347,7 +348,7 @@ def test_pending_expiry_orphan_cleanup_and_restart(tmp_path):
     # A fresh app lifespan retains the image and sender access, even under a new tab token.
     with TestClient(create_app(path)) as client:
         new_token = "a-new-left-session-token"
-        with client.websocket_connect(f"/ws/left?token={new_token}") as left:
+        with join(client, "/ws/left", new_token) as left:
             welcome = receive_type(left, "welcome")
             assert welcome["players"][0]["carrying"]
             response = client.get(
@@ -402,7 +403,7 @@ def test_injected_storage_and_failed_discard_are_recoverable(tmp_path):
     storage = MemoryImages()
     app = create_app(tmp_path / "cards.sqlite3", image_storage=storage)
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws/left?token={TOKEN}") as left:
+        with join(client, "/ws/left", TOKEN) as left:
             receive_type(left, "welcome")
             assert (
                 client.post(

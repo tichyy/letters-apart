@@ -11,7 +11,22 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
+        # Commits run on the game loop's thread. WAL makes each one a single append,
+        # and NORMAL skips its fsync: a power loss may drop the newest commits but
+        # can't corrupt the database, and an app crash loses nothing.
+        self.db.execute("PRAGMA journal_mode = WAL")
+        self.db.execute("PRAGMA synchronous = NORMAL")
         self.db.execute("PRAGMA foreign_keys = ON")
+        version = self.db.execute("PRAGMA user_version").fetchone()[0]
+        # Add later schema changes as `if version < 2:` blocks, each ending by
+        # raising user_version, so every database migrates exactly once in order.
+        if version < 1:
+            self._migrate_to_v1()
+            self.db.execute("PRAGMA user_version = 1")
+        self.db.commit()
+
+    def _migrate_to_v1(self) -> None:
+        """Bring any pre-versioning database (including an empty one) to schema 1."""
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS postcards (
                 id INTEGER PRIMARY KEY,
@@ -69,7 +84,6 @@ class Store:
         )
         self.db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS postcard_requests
                            ON postcards(request_owner, request_id)""")
-        self.db.commit()
 
     def summary(self, side: str) -> dict:
         carrying = self.db.execute(

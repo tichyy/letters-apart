@@ -13,6 +13,8 @@ export class Connection {
   side: Side | null = null;
   private socket?: WebSocket;
   private retry?: number;
+  private failures = 0;
+  private lastResync = -Infinity;
   private lastMessage = 0;
   private readonly token: string;
 
@@ -37,9 +39,12 @@ export class Connection {
     this.status('Connecting…');
     const previous = this.socket;
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${location.host}/ws/${side}?token=${this.token}`);
+    const socket = new WebSocket(`${protocol}//${location.host}/ws/${side}`);
     this.socket = socket;
     previous?.close();
+
+    // The token goes in the first message, not the URL, which server logs record.
+    socket.onopen = () => socket.send(JSON.stringify({ type: 'hello', token: this.token }));
 
     socket.onmessage = event => {
       if (socket !== this.socket) return;
@@ -47,6 +52,7 @@ export class Connection {
       const message = JSON.parse(event.data) as Message;
       if (message.type === 'welcome') {
         this.ready = true;
+        this.failures = 0;
         sessionStorage.setItem('letters-side', side);
       }
       if (message.type === 'occupied') {
@@ -63,9 +69,23 @@ export class Connection {
         location.assign('/login');
         return;
       }
+      if (event.code === 4001) {
+        // Signed in elsewhere took this home over; reconnecting would take it back.
+        this.side = null;
+        this.receive({ type: 'replaced', side });
+        return;
+      }
       if (this.side) {
         this.status('Reconnecting…');
-        this.retry = window.setTimeout(() => this.connect(side), 1500);
+        // 4000: the server asked for a resync. Do the first one at once, but if it
+        // keeps happening (a client bug), back off rather than reconnect in a tight
+        // loop. Otherwise back off with jitter so a restarting server isn't hit by
+        // both players in lockstep.
+        const resync = event.code === 4000 && Date.now() - this.lastResync > 10000;
+        if (event.code === 4000) this.lastResync = Date.now();
+        const delay = resync ? 0
+          : Math.min(15000, 1000 * 2 ** this.failures++) * (0.5 + Math.random() / 2);
+        this.retry = window.setTimeout(() => this.connect(side), delay);
       }
     };
     socket.onerror = () => socket.close();

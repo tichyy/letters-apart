@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from conftest import join
 from server.access import COOKIE, SESSION_SECONDS, Access
 from server.app import create_app
 
@@ -74,8 +75,7 @@ def test_all_game_routes_require_access_but_healthcheck_stays_public(private_app
                 },
             )
             assert response.status_code == 401
-        with client.websocket_connect(
-            f"{WS_ORIGIN}/ws/left?token=left-player-token"
+        with join(client, f"{WS_ORIGIN}/ws/left", "left-player-token"
         ) as socket:
             with pytest.raises(WebSocketDisconnect) as error:
                 socket.receive_json()
@@ -117,13 +117,11 @@ def test_invitation_assigns_one_home_and_protects_other_home(
             client.get("/api/images/abc", headers={"X-Player-Side": side}).status_code
             == 401
         )
-        with client.websocket_connect(
-            f"{WS_ORIGIN}/ws/{other}?token=left-player-token"
+        with join(client, f"{WS_ORIGIN}/ws/{other}", "left-player-token"
         ) as socket:
             with pytest.raises(WebSocketDisconnect):
                 socket.receive_json()
-        with client.websocket_connect(
-            f"{WS_ORIGIN}/ws/{side}?token=left-player-token", headers={"Origin": ORIGIN}
+        with join(client, f"{WS_ORIGIN}/ws/{side}", "left-player-token", headers={"Origin": ORIGIN}
         ) as socket:
             welcome = socket.receive_json()
             assert welcome["type"] == "welcome" and welcome["side"] == side
@@ -195,8 +193,7 @@ def test_tampered_and_expired_cookies_cannot_access_game(private_app, monkeypatc
             "server.access.time.time", lambda: now + SESSION_SECONDS + 1
         )
         assert client.get("/", follow_redirects=False).headers["location"] == "/login"
-        with client.websocket_connect(
-            f"{WS_ORIGIN}/ws/left?token=left-player-token"
+        with join(client, f"{WS_ORIGIN}/ws/left", "left-player-token"
         ) as socket:
             with pytest.raises(WebSocketDisconnect):
                 socket.receive_json()
@@ -238,8 +235,7 @@ def test_expired_session_closes_an_existing_websocket(private_app, monkeypatch):
     monkeypatch.setattr("server.access.SESSION_SECONDS", 2)
     with TestClient(private_app, base_url=ORIGIN) as client:
         sign_in(client)
-        with client.websocket_connect(
-            f"{WS_ORIGIN}/ws/left?token=left-player-token", headers={"Origin": ORIGIN}
+        with join(client, f"{WS_ORIGIN}/ws/left", "left-player-token", headers={"Origin": ORIGIN}
         ) as socket:
             assert socket.receive_json()["type"] == "welcome"
             with pytest.raises(WebSocketDisconnect) as error:
@@ -276,3 +272,38 @@ def test_passphrase_limits_are_enforced(private_app, monkeypatch, passphrase):
     monkeypatch.setenv("POSTCARD_ACCESS_LEFT", passphrase)
     with pytest.raises(ValueError, match="at least 15 characters"):
         Access()
+
+
+def test_signed_in_owner_can_move_their_home_to_another_window(private_app):
+    with TestClient(private_app, base_url=ORIGIN) as client:
+        sign_in(client)
+        headers = {"Origin": ORIGIN}
+        with join(client, f"{WS_ORIGIN}/ws/left", "first-window-token", headers=headers) as first:
+            assert first.receive_json()["type"] == "welcome"
+            with join(
+                client, f"{WS_ORIGIN}/ws/left", "second-window-token", headers=headers
+            ) as second:
+                assert second.receive_json()["type"] == "welcome"
+                with pytest.raises(WebSocketDisconnect) as error:
+                    while True:
+                        first.receive_json()
+                assert error.value.code == 4001
+                assert private_app.state.game.peers["left"].token == "second-window-token"
+
+
+def test_login_limit_is_per_client(private_app):
+    attacker = TestClient(private_app, base_url=ORIGIN, client=("203.0.113.7", 4000))
+    player = TestClient(private_app, base_url=ORIGIN, client=("198.51.100.2", 4000))
+    for _ in range(20):
+        assert sign_in(attacker, "wrong").status_code == 401
+    assert sign_in(attacker).status_code == 429
+    assert sign_in(player).status_code == 303
+
+
+def test_login_has_a_global_ceiling(private_app, monkeypatch):
+    monkeypatch.setattr("server.access.ATTEMPTS_TOTAL", 3)
+    for host in ("203.0.113.1", "203.0.113.2", "203.0.113.3"):
+        client = TestClient(private_app, base_url=ORIGIN, client=(host, 4000))
+        assert sign_in(client, "wrong").status_code == 401
+    client = TestClient(private_app, base_url=ORIGIN, client=("203.0.113.4", 4000))
+    assert sign_in(client).status_code == 429

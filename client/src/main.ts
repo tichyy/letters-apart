@@ -37,6 +37,7 @@ function receive(message: Message): void {
     case 'mailbox': ui.read(message.postcards); break;
     case 'gallery': ui.gallery(message.postcards, message.page, message.hasMore); break;
     case 'occupied': ui.chooseHome(true); break;
+    case 'replaced': ui.replaced(message.side); break;
     case 'error': ui.error(message.message, message.requestId); break;
     case 'mailbox_used': scene.useMailbox(message.side); break;
     case 'delivered':

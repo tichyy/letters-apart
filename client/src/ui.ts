@@ -187,6 +187,17 @@ export class UI {
     }
   }
 
+  replaced(side: Side): void {
+    this.open('home', `
+      <p class="eyebrow">LETTERS APART</p><h1>Playing somewhere else</h1>
+      <p>Your home is open in another window or device.</p>
+      <div class="home-choices"><button data-home>Play here instead</button></div>`);
+    this.panel.querySelector<HTMLButtonElement>('[data-home]')!.onclick = () => {
+      this.panel.close();
+      this.join(side);
+    };
+  }
+
   compose(): void {
     const savedStamp = sessionStorage.getItem('letters-draft-stamp');
     const stamp = savedStamp === '1' ? 1 : savedStamp === '2' ? 2 : savedStamp === '3' ? 3 : null;

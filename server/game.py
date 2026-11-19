@@ -3,8 +3,11 @@
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import re
+import sqlite3
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +19,16 @@ from .store import Store, session_owner
 SIDES = ("left", "right")
 GALLERY_PAGE_SIZE = 12
 WORLD = json.loads((Path(__file__).resolve().parent.parent / "world.json").read_text())
+# Non-movement messages (interactions, reads, writes) per peer: sustained rate and burst.
+MESSAGE_RATE = 10
+MESSAGE_BURST = 20
+# /healthz fails when no tick has completed successfully within this many seconds.
+HEALTHY_WITHIN = 1.0
+logger = logging.getLogger(__name__)
+
+
+class Desync(ValueError):
+    """The client's input sequence no longer matches ours; it must reconnect to resync."""
 
 
 @dataclass
@@ -42,8 +55,21 @@ class Peer:
     socket: WebSocket
     token: str
     outbox: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=32))
+    # Set once this connection must end; its handler closes the socket with `closing`.
+    dropped: asyncio.Event = field(default_factory=asyncio.Event)
+    closing: tuple[int, str] | None = None
+    budget: float = MESSAGE_BURST
+    refilled: float = field(default_factory=lambda: time.monotonic())
+
+    def drop(self, code: int, reason: str) -> None:
+        if self.closing is None:
+            self.closing = (code, reason)
+            self.dropped.set()
 
     def send(self, message: dict) -> None:
+        """Never raises: callers include the shared game loop."""
+        if self.closing:
+            return
         # Keep the newest state under backpressure, preserving reliable events.
         if message["type"] == "state":
             reliable = []
@@ -55,12 +81,58 @@ class Peer:
                 self.outbox.put_nowait(queued)
             if self.outbox.full():
                 return
+        elif self.outbox.full():
+            # A reliable event can't be dropped silently. This peer is too far behind
+            # to catch up, so disconnect it; its client reconnects with fresh state.
+            self.drop(1013, "Connection too slow.")
+            return
         self.outbox.put_nowait(message)
+
+    def allow(self) -> bool:
+        """Spend one token from this peer's message budget."""
+        now = time.monotonic()
+        self.budget = min(
+            MESSAGE_BURST, self.budget + max(0, now - self.refilled) * MESSAGE_RATE
+        )
+        self.refilled = now
+        if self.budget < 1:
+            return False
+        self.budget -= 1
+        return True
 
     async def write(self) -> None:
         while True:
             message = await self.outbox.get()
             await asyncio.wait_for(self.socket.send_json(message), timeout=5)
+
+
+def move(player: Player, direction: int, jump: bool) -> None:
+    """Advance one input. Must match client/src/movement.ts; see test_movement_parity."""
+    player.jump_held = jump
+    player.moving = direction != 0
+    if direction:
+        player.facing = direction
+    if player.y == 0:
+        if not jump:
+            player.jump_chain = 0
+        player.landing_ticks = max(0, player.landing_ticks - 1)
+        if jump and player.landing_ticks == 0:
+            player.vy = -WORLD["jumpSpeed"]
+            player.jump_chain = min(player.jump_chain + 1, WORLD["maxJumpChain"])
+    speed = WORLD["speed"] * (
+        1 + max(0, player.jump_chain - 1) * WORLD["jumpBoost"]
+    )
+    player.x = max(
+        WORLD["minX"],
+        min(WORLD["maxX"], player.x + direction * speed / WORLD["tickRate"]),
+    )
+    previous_y = player.y
+    player.vy += WORLD["gravity"] / WORLD["tickRate"]
+    player.y = min(0, player.y + player.vy / WORLD["tickRate"])
+    if player.y == 0:
+        player.vy = 0
+        if previous_y < 0:
+            player.landing_ticks = WORLD["landingTicks"]
 
 
 class Game:
@@ -73,6 +145,8 @@ class Game:
         self.peers: dict[str, Peer] = {}
         self.mail = {side: store.summary(side) for side in SIDES}
         self.time = 0.0
+        self.last_tick: float | None = None
+        self.last_error = -math.inf
 
     def snapshot(self) -> dict:
         return {
@@ -109,14 +183,11 @@ class Game:
                 player.credit -= 1
                 player.paused = False
                 player.ack = seq
-                self._move(player, direction, jump)
+                move(player, direction, jump)
                 while player.actions and player.actions[0][0] <= player.ack:
                     _, message, token = player.actions.popleft()
+                    response = self.respond(player.side, message, token)
                     peer = self.peers.get(player.side)
-                    try:
-                        response = self.handle(player.side, message, token)
-                    except ValueError as error:
-                        response = {"type": "error", "message": str(error)}
                     if response and peer:
                         peer.send(response)
             # Active prediction advances physics once per input on both ends.
@@ -128,34 +199,7 @@ class Game:
                     and (player.y < 0 or player.vy < 0 or player.landing_ticks > 0)
                 ):
                     player.credit -= 1
-                    self._move(player, 0, False)
-
-    def _move(self, player: Player, direction: int, jump: bool) -> None:
-        player.jump_held = jump
-        player.moving = direction != 0
-        if direction:
-            player.facing = direction
-        if player.y == 0:
-            if not jump:
-                player.jump_chain = 0
-            player.landing_ticks = max(0, player.landing_ticks - 1)
-            if jump and player.landing_ticks == 0:
-                player.vy = -WORLD["jumpSpeed"]
-                player.jump_chain = min(player.jump_chain + 1, WORLD["maxJumpChain"])
-        speed = WORLD["speed"] * (
-            1 + max(0, player.jump_chain - 1) * WORLD["jumpBoost"]
-        )
-        player.x = max(
-            WORLD["minX"],
-            min(WORLD["maxX"], player.x + direction * speed / WORLD["tickRate"]),
-        )
-        previous_y = player.y
-        player.vy += WORLD["gravity"] / WORLD["tickRate"]
-        player.y = min(0, player.y + player.vy / WORLD["tickRate"])
-        if player.y == 0:
-            player.vy = 0
-            if previous_y < 0:
-                player.landing_ticks = WORLD["landingTicks"]
+                    move(player, 0, False)
 
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
@@ -164,13 +208,23 @@ class Game:
         tick = 0
         while True:
             now = loop.time()
-            self.step(max(0, now - previous))
-            previous = now
+            elapsed, previous = max(0, now - previous), now
             tick += 1
-            if tick % 2 == 0:
-                state = self.snapshot()
-                for peer in list(self.peers.values()):
-                    peer.send(state)
+            try:
+                self.step(elapsed)
+                if tick % 2 == 0:
+                    state = self.snapshot()
+                    for peer in list(self.peers.values()):
+                        peer.send(state)
+                # Only a completed tick counts as alive: a loop that keeps failing
+                # is running but frozen, and /healthz must report it.
+                self.last_tick = loop.time()
+            except Exception:
+                # The shared world must outlive any single failure. Log a repeating
+                # error at most every 10 seconds rather than 60 times a second.
+                if now - self.last_error >= 10:
+                    self.last_error = now
+                    logger.exception("Game tick failed; continuing")
             deadline += 1 / WORLD["tickRate"]
             # Bound catch-up after a suspended process; don't spiral through old ticks.
             deadline = max(deadline, loop.time() - 0.1)
@@ -188,6 +242,14 @@ class Game:
         player.jump_held = False
         player.jump_chain = 0
 
+    def healthy(self) -> bool:
+        """True while the game loop is ticking."""
+        loop = asyncio.get_running_loop()
+        return (
+            self.last_tick is not None
+            and loop.time() - self.last_tick < HEALTHY_WITHIN
+        )
+
     def nearby(self, side: str, x: float) -> bool:
         player = self.players[side]
         return math.hypot(player.x - x, player.y) <= WORLD["radius"]
@@ -198,6 +260,30 @@ class Game:
     def use_mailbox(self, side: str) -> None:
         for peer in self.peers.values():
             peer.send({"type": "mailbox_used", "side": side})
+
+    def respond(
+        self, side: str, message: dict, session_token: str | None = None
+    ) -> dict | None:
+        """Run one client message, turning validation and database failures into a reply."""
+        try:
+            return self.handle(side, message, session_token)
+        except Desync:
+            # The client already discarded inputs we rejected, so every later batch
+            # would fail too. Reconnecting resynchronizes from the last applied input.
+            if peer := self.peers.get(side):
+                peer.drop(4000, "Resynchronizing.")
+            return None
+        except ValueError as error:
+            response = {"type": "error", "message": str(error)}
+        except sqlite3.Error:
+            logger.exception("Could not handle %r from %s", message.get("type"), side)
+            response = {
+                "type": "error",
+                "message": "Something went wrong. Please try again.",
+            }
+        if isinstance(message.get("requestId"), str):
+            response["requestId"] = message["requestId"]
+        return response
 
     def handle(
         self, side: str, message: dict, session_token: str | None = None
@@ -211,7 +297,7 @@ class Game:
                 "after", player.received if kind == "stop" else player.ack
             )
             if type(after) is not int or not 0 <= after <= player.received:
-                raise ValueError("Invalid interaction sequence.")
+                raise Desync("Invalid interaction sequence.")
             if after > player.ack:
                 if len(player.actions) >= 4:
                     raise ValueError("Please wait for your previous interaction.")
@@ -221,12 +307,12 @@ class Game:
         if kind == "input":
             inputs = message.get("inputs")
             if not isinstance(inputs, list) or not 1 <= len(inputs) <= 8:
-                raise ValueError("Invalid movement input.")
+                raise Desync("Invalid movement input.")
             # Validate the entire batch before modifying movement state.
             previous = player.received
             for item in inputs:
                 if not isinstance(item, dict):
-                    raise ValueError("Invalid movement input.")
+                    raise Desync("Invalid movement input.")
                 seq, direction = item.get("seq"), item.get("direction")
                 if (
                     type(seq) is not int
@@ -235,10 +321,10 @@ class Game:
                     or direction not in (-1, 0, 1)
                     or type(item.get("jump", False)) is not bool
                 ):
-                    raise ValueError("Invalid movement sequence.")
+                    raise Desync("Invalid movement sequence.")
                 previous = seq
             if len(player.inputs) + len(inputs) > 120:
-                raise ValueError("Too many queued movement inputs.")
+                raise Desync("Too many queued movement inputs.")
             for item in inputs:
                 player.inputs.append(
                     (item["seq"], item["direction"], item.get("jump", False))

@@ -35,4 +35,8 @@ USER app
 EXPOSE 8000
 
 # exec passes shutdown signals to Uvicorn; one worker owns the shared game state.
-CMD ["sh", "-c", "exec /app/.venv/bin/uvicorn server.app:app --host 0.0.0.0 --port \"$PORT\" --workers 1"]
+# Game messages are capped at 8,192 characters (at most 4 UTF-8 bytes each), so refuse
+# larger frames before buffering them. Pings drop a dead socket within ~20 seconds.
+# The container is only reachable through Railway's proxy (or loopback in Compose),
+# so trust its X-Forwarded-For for the per-client sign-in limit.
+CMD ["sh", "-c", "exec /app/.venv/bin/uvicorn server.app:app --host 0.0.0.0 --port \"$PORT\" --workers 1 --ws-max-size 32768 --ws-ping-interval 10 --ws-ping-timeout 10 --forwarded-allow-ips '*'"]

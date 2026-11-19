@@ -49,4 +49,6 @@ export type Message =
   | { type: 'mailbox_used'; side: Side }
   | { type: 'delivered'; sender: Side; recipient: Side }
   | { type: 'error'; message: string; requestId?: string }
-  | { type: 'occupied' };
+  | { type: 'occupied' }
+  // Raised by Connection, not the server: this home was opened in another window.
+  | { type: 'replaced'; side: Side };

@@ -15,6 +15,12 @@ from starlette.websockets import WebSocket
 
 COOKIE = "__Host-letters-access"
 SESSION_SECONDS = 90 * 24 * 60 * 60
+# ASGI scope key holding the signed-in side, for handlers behind the middleware.
+SESSION_SIDE = "letters.side"
+# Sign-in attempts per minute. The per-client limit stops guessing; the much higher
+# total only bounds work, so one client can't lock both players out.
+ATTEMPTS_PER_CLIENT = 20
+ATTEMPTS_TOTAL = 300
 
 
 class Access:
@@ -27,7 +33,8 @@ class Access:
             os.environ.get("RAILWAY_ENVIRONMENT_ID")
         )
         self.enabled = required or any(codes.values())
-        self.attempts: deque[float] = deque()
+        self.attempts: dict[str, deque[float]] = {}
+        self.total: deque[float] = deque()
         if not self.enabled:
             return
         if any(
@@ -78,6 +85,26 @@ class Access:
         except ValueError:
             return None
 
+    def admit(self, client: str) -> bool:
+        """Record a sign-in attempt unless this client or everyone is over the limit."""
+        now = time.monotonic()
+        for attempts in (self.total, self.attempts.get(client, ())):
+            while attempts and attempts[0] <= now - 60:
+                attempts.popleft()
+        if len(self.attempts) > 1024:
+            # Forget idle clients so spoofed or rotating addresses can't grow memory.
+            self.attempts = {
+                key: value
+                for key, value in self.attempts.items()
+                if value and value[-1] > now - 60
+            }
+        attempts = self.attempts.setdefault(client, deque())
+        if len(attempts) >= ATTEMPTS_PER_CLIENT or len(self.total) >= ATTEMPTS_TOTAL:
+            return False
+        attempts.append(now)
+        self.total.append(now)
+        return True
+
     async def login(self, request: Request):
         if request.method == "GET":
             return login_page()
@@ -98,14 +125,10 @@ class Access:
             != "application/x-www-form-urlencoded"
         ):
             return login_page("Please use the sign-in form.", 415)
-        now = time.monotonic()
-        while self.attempts and self.attempts[0] <= now - 60:
-            self.attempts.popleft()
-        if len(self.attempts) >= 20:
+        if not self.admit(request.client.host if request.client else ""):
             response = login_page("Too many attempts. Please wait a minute.", 429)
             response.headers["Retry-After"] = "60"
             return response
-        self.attempts.append(now)
 
         async def read_form():
             body = bytearray()
@@ -178,7 +201,8 @@ class AccessMiddleware:
                 await socket.accept()
                 await socket.close(code=1008, reason="Sign in to play.")
                 return
-            _, expires = session
+            side, expires = session
+            scope[SESSION_SIDE] = side
 
             async def authenticated_receive():
                 try:

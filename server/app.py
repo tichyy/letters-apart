@@ -9,11 +9,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
-from .access import Access, AccessMiddleware
+from .access import SESSION_SIDE, Access, AccessMiddleware
 from .game import SIDES, Game, Peer
 from .image_routes import ImageService
 from .image_routes import router as image_router
@@ -71,28 +71,48 @@ def create_app(
     async def health():
         # Lifespan initializes persistent storage before accepting requests.
         app.state.game.store.db.execute("SELECT 1").fetchone()
+        if not app.state.game.healthy():
+            return JSONResponse({"status": "game loop stalled"}, status_code=503)
         return {"status": "ok"}
 
     @app.websocket("/ws/{side}")
-    async def connect(socket: WebSocket, side: str, token: str = ""):
+    async def connect(socket: WebSocket, side: str):
         await socket.accept()
         # Browser clients must connect from the same origin (including Vite's proxy).
         origin = socket.headers.get("origin")
         if origin and origin.split("://", 1)[-1] != socket.headers.get("host"):
             await socket.close(code=1008, reason="Connect from the game website.")
             return
-        if side not in SIDES or not re.fullmatch(r"[a-zA-Z0-9-]{16,64}", token):
+        # The tab token arrives in a first message rather than the URL, which
+        # access logs record. It also authorizes this tab's photo requests.
+        token = None
+        if side in SIDES:
+            try:
+                hello = json.loads(
+                    await asyncio.wait_for(socket.receive_text(), timeout=10)
+                )
+                if isinstance(hello, dict) and hello.get("type") == "hello":
+                    token = hello.get("token")
+            except (ValueError, KeyError, asyncio.TimeoutError):
+                pass
+            except WebSocketDisconnect:
+                return
+        if not isinstance(token, str) or not re.fullmatch(r"[a-zA-Z0-9-]{16,64}", token):
             await socket.close(code=1008, reason="Invalid player.")
             return
 
         game: Game = app.state.game
         old = game.peers.get(side)
         if old and old.token != token:
-            await socket.send_json({"type": "occupied"})
-            await socket.close(code=1008, reason="That home is already occupied.")
-            return
-        if old:
-            await old.socket.close(code=1000)
+            # A signed-in owner may move their home to this window; anyone else
+            # (or anyone at all when sign-in is off) must pick the free home.
+            if socket.scope.get(SESSION_SIDE) != side:
+                await socket.send_json({"type": "occupied"})
+                await socket.close(code=1008, reason="That home is already occupied.")
+                return
+            old.drop(4001, "Opened in another window.")
+        elif old:
+            old.drop(1000, "Reconnected.")
 
         game.stop(side)
         peer = Peer(socket, token)
@@ -112,40 +132,39 @@ def create_app(
                 if game.peers.get(side) is not peer:
                     return
                 if len(raw) > 8192:
-                    await socket.close(code=1009, reason="Message too large.")
+                    peer.drop(1009, "Message too large.")
                     return
-                message = None
                 try:
                     message = json.loads(raw)
-                    if not isinstance(message, dict):
-                        raise ValueError("Invalid message.")
-                    response = game.handle(side, message, peer.token)
-                    if response:
-                        peer.send(response)
-                except ValueError as error:
-                    peer.send(
-                        {
-                            "type": "error",
-                            "message": str(error),
-                            **(
-                                {"requestId": message["requestId"]}
-                                if isinstance(message, dict)
-                                and isinstance(message.get("requestId"), str)
-                                else {}
-                            ),
-                        }
-                    )
+                except ValueError:
+                    message = None
+                if not isinstance(message, dict):
+                    peer.send({"type": "error", "message": "Invalid message."})
+                    continue
+                # Movement is bounded by its own sequence and queue checks; everything
+                # else may touch the database on the game's thread, so it is budgeted.
+                if message.get("type") != "input" and not peer.allow():
+                    response = {"type": "error", "message": "Slow down a little."}
+                    if isinstance(message.get("requestId"), str):
+                        response["requestId"] = message["requestId"]
+                    peer.send(response)
+                    continue
+                response = game.respond(side, message, peer.token)
+                if response:
+                    peer.send(response)
 
         reader = asyncio.create_task(receive())
+        dropped = asyncio.create_task(peer.dropped.wait())
+        tasks = (reader, writer, dropped)
         try:
-            await asyncio.wait((reader, writer), return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         finally:
             if game.peers.get(side) is peer:
                 del game.peers[side]
                 game.stop(side)
-            for task in (reader, writer):
+            for task in tasks:
                 task.cancel()
-            for task in (reader, writer):
+            for task in tasks:
                 with contextlib.suppress(
                     asyncio.CancelledError,
                     WebSocketDisconnect,
@@ -154,8 +173,9 @@ def create_app(
                     asyncio.TimeoutError,
                 ):
                     await task
+            code, reason = peer.closing or (1000, "")
             with contextlib.suppress(WebSocketDisconnect, RuntimeError, OSError):
-                await socket.close()
+                await socket.close(code=code, reason=reason)
 
     # A single Python process serves the built game and its WebSocket endpoint.
     dist = ROOT / "dist"

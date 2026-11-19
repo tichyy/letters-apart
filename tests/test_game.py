@@ -10,6 +10,7 @@ from fastapi import WebSocket
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from conftest import join
 from server.app import create_app
 from server.game import WORLD, Game, Peer
 from server.store import Store
@@ -522,10 +523,9 @@ def receive_type(socket, kind):
 def test_two_players_share_state_and_reconnect(tmp_path):
     app = create_app(tmp_path / "cards.sqlite3")
     with TestClient(app) as client:
-        with client.websocket_connect("/ws/left?token=left-player-token") as left:
+        with join(client, "/ws/left", "left-player-token") as left:
             assert receive_type(left, "welcome")["side"] == "left"
-            with client.websocket_connect(
-                "/ws/right?token=right-player-token"
+            with join(client, "/ws/right", "right-player-token"
             ) as right:
                 assert receive_type(right, "welcome")["side"] == "right"
                 left.send_json(
@@ -538,14 +538,12 @@ def test_two_players_share_state_and_reconnect(tmp_path):
                         break
                 assert player["x"] > WORLD["desks"]["left"]
                 assert all(p["connected"] for p in state["players"])
-                with client.websocket_connect(
-                    "/ws/left?token=different-player-token"
+                with join(client, "/ws/left", "different-player-token"
                 ) as third:
                     assert receive_type(third, "occupied")["type"] == "occupied"
                 left.send_json({"type": "write", "body": "Saved in my backpack"})
                 assert receive_type(left, "written")["type"] == "written"
-                with client.websocket_connect(
-                    "/ws/left?token=left-player-token"
+                with join(client, "/ws/left", "left-player-token"
                 ) as resumed:
                     welcome = receive_type(resumed, "welcome")
                     assert welcome["players"][0]["carrying"]
@@ -554,8 +552,7 @@ def test_two_players_share_state_and_reconnect(tmp_path):
 
 def test_websocket_rejects_other_origins(tmp_path):
     with TestClient(create_app(tmp_path / "cards.sqlite3")) as client:
-        with client.websocket_connect(
-            "/ws/left?token=left-player-token",
+        with join(client, "/ws/left", "left-player-token",
             headers={"origin": "https://elsewhere.example"},
         ) as socket:
             with pytest.raises(WebSocketDisconnect):
@@ -570,7 +567,7 @@ def test_failed_socket_writer_releases_its_home(tmp_path, monkeypatch):
     monkeypatch.setattr(Peer, "write", failed_writer)
     app = create_app(tmp_path / "cards.sqlite3")
     with TestClient(app) as client:
-        with client.websocket_connect("/ws/left?token=left-player-token") as socket:
+        with join(client, "/ws/left", "left-player-token") as socket:
             assert socket.receive_json()["type"] == "welcome"
             with pytest.raises(WebSocketDisconnect):
                 socket.receive_json()
@@ -590,7 +587,7 @@ def test_disconnect_during_close_releases_home_and_allows_reconnect(
     app = create_app(tmp_path / "cards.sqlite3")
     with TestClient(app) as client:
         for token in ("left-player-token", "next-player-token"):
-            with client.websocket_connect(f"/ws/left?token={token}") as socket:
+            with join(client, "/ws/left", token) as socket:
                 assert receive_type(socket, "welcome")["side"] == "left"
             assert "left" not in app.state.game.peers
     assert len(close_attempts) == 2
@@ -612,3 +609,11 @@ def test_game_entry_page_revalidates_and_serves_rebuilt_client(tmp_path, monkeyp
         response = client.get("/", headers={"If-None-Match": response.headers["etag"]})
         assert response.status_code == 200
         assert "rebuilt-client.js" in response.text
+
+
+def test_database_uses_wal_and_records_its_schema_version(tmp_path):
+    path = tmp_path / "cards.sqlite3"
+    Store(path).close()
+    with closing(sqlite3.connect(path)) as db:
+        assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 1
