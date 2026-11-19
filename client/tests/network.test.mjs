@@ -18,7 +18,7 @@ const performance={now:()=>globalThis.networkTestTime};
 class Controls {value=0;direction(){return this.value}jump(){return false}release(){this.value=0}}
 `;
 const code = stubs + await source('movement') + await source('partner-playback') + await source('world-view') + await source('scene');
-const { WorldScene, WorldView } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { WorldScene, WorldView, frameTiming } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const dt = 1000 / 60;
 const player = (side, x = world.desks[side], ack = 0) => ({
   side, x, ack, step: ack, y: 0, vy: 0, jumpChain: 0, landingTicks: 0,
@@ -255,4 +255,25 @@ test('the partner animation follows the drawn height after a delayed landing', (
   assert.ok(frames.some(frame => /-land$/.test(frame.animation)), 'shows the landing');
   assert.equal(frames.at(-1).y, 12);
   assert.match(frames.at(-1).animation, /-idle$/);
+});
+
+test("Phaser reports real elapsed time on a slow device, even right after loading", async () => {
+  const { createRequire } = await import('node:module');
+  const TimeStep = createRequire(import.meta.url)('phaser/src/core/TimeStep.js');
+  let clock = 0;
+  const previousWindow = globalThis.window;
+  globalThis.window = { performance: { now: () => clock } };
+  try {
+    const step = new TimeStep({}, frameTiming);
+    let gameTime = 0;
+    step.callback = (_time, delta) => { gameTime += delta; };
+    // As TimeStep.start() does, without a browser animation loop.
+    for (let i = 0; i < step.deltaSmoothingMax; i++) step.deltaHistory[i] = step._target;
+    step.resetDelta();
+    // A phone still loading: 30 fps for the first 4 seconds (120 frames).
+    for (let frame = 1; frame <= 120; frame++) step.step(clock = frame * 1000 / 30);
+    assert.ok(Math.abs(gameTime - 4000) < 1, `game time ${gameTime.toFixed(0)} ms after 4000 ms`);
+  } finally {
+    globalThis.window = previousWindow;
+  }
 });

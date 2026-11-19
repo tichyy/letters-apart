@@ -8,6 +8,11 @@ import type { Input, Message, Motion, Player, Side } from './protocol';
 import type { UI } from './ui';
 
 const stepTime = 1000 / world.tickRate;
+// Phaser's default delta smoothing reports at most 1/60 s per frame for 120 frames
+// after start and after every return to the tab, so a 30 fps phone ran at half speed
+// for ~4 s. The fixed-step simulation needs real elapsed time, and blending between
+// steps already keeps uneven frames smooth.
+export const frameTiming = { target: world.tickRate, smoothStep: false };
 // Matches the server's MAX_BUFFERED_INPUTS: how far prediction may run ahead of it.
 const maxPending = 2 * world.tickRate;
 
