@@ -307,3 +307,33 @@ def test_login_has_a_global_ceiling(private_app, monkeypatch):
         assert sign_in(client, "wrong").status_code == 401
     client = TestClient(private_app, base_url=ORIGIN, client=("203.0.113.4", 4000))
     assert sign_in(client).status_code == 429
+
+
+def test_signed_in_browsers_cache_game_files_but_never_private_data(
+    tmp_path, monkeypatch
+):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<script src='/assets/game-1a2b3c.js'></script>")
+    (dist / "assets" / "game-1a2b3c.js").write_text("console.log('game')")
+    (dist / "player.png").write_bytes(b"\x89PNG sprite")
+    monkeypatch.setattr("server.app.ROOT", tmp_path)
+    monkeypatch.setenv("POSTCARD_REQUIRE_AUTH", "1")
+    monkeypatch.setenv("POSTCARD_ACCESS_LEFT", LEFT_CODE)
+    monkeypatch.setenv("POSTCARD_ACCESS_RIGHT", RIGHT_CODE)
+    with TestClient(create_app(tmp_path / "cards.sqlite3"), base_url=ORIGIN) as client:
+        sign_in(client)
+        # Vite names the bundle by its content, so it can be kept for a year.
+        bundle = client.get("/assets/game-1a2b3c.js")
+        assert bundle.headers["cache-control"] == "private, max-age=31536000, immutable"
+        # Unhashed files are kept but checked each visit: unchanged ones cost a 304.
+        sprite = client.get("/player.png")
+        assert sprite.headers["cache-control"] == "private, no-cache"
+        again = client.get("/player.png", headers={"If-None-Match": sprite.headers["etag"]})
+        assert again.status_code == 304
+        assert client.get("/?player=left").headers["cache-control"] == "private, no-cache"
+        # Private data and the sign-in flow are never stored.
+        assert client.get("/login").headers["cache-control"] == "private, no-store"
+        assert client.get(
+            "/api/images/" + "a" * 32, headers={"X-Player-Side": "left"}
+        ).headers["cache-control"] == "private, no-store"

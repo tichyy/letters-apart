@@ -182,12 +182,15 @@ class AccessMiddleware:
 
         async def private_send(message):
             if message["type"] == "http.response.start":
-                message["headers"] = [
-                    (key, value)
-                    for key, value in message["headers"]
-                    if key.lower() != b"cache-control"
-                ]
-                message["headers"].append((b"cache-control", b"private, no-store"))
+                policy = None
+                headers = []
+                for key, value in message["headers"]:
+                    if key.lower() == b"cache-control":
+                        policy = value
+                    else:
+                        headers.append((key, value))
+                headers.append((b"cache-control", private_policy(policy)))
+                message["headers"] = headers
             await send(message)
 
         if scope["type"] == "http" and path == "/login":
@@ -238,6 +241,19 @@ class AccessMiddleware:
             await self.app(scope, receive, private_send)
             return
         await response(scope, receive, private_send)
+
+
+def private_policy(policy: bytes | None) -> bytes:
+    """Behind sign-in, only the signed-in browser may keep a copy, never a shared
+    cache. A response that sets no policy of its own is not kept at all."""
+    if not policy:
+        return b"private, no-store"
+    directives = [
+        directive.strip()
+        for directive in policy.split(b",")
+        if directive.strip() and directive.strip().lower() not in (b"public", b"private")
+    ]
+    return b", ".join([b"private", *directives])
 
 
 def login_page(error: str = "", status: int = 200):

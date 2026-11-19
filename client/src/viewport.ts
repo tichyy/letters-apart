@@ -6,6 +6,31 @@ export interface ViewLayout {
   cameraZoom: number;
 }
 
+/**
+ * The game canvas for a container of this CSS size: each canvas pixel covers a
+ * whole number of device pixels, so the canvas can be smaller than the CSS size.
+ */
+export function canvasSize(cssWidth: number, cssHeight: number, pixelRatio: number): { width: number; height: number } {
+  const pixelScale = Math.max(1, Math.round(pixelRatio));
+  return {
+    width: Math.ceil(cssWidth * pixelRatio / pixelScale),
+    height: Math.ceil(cssHeight * pixelRatio / pixelScale),
+  };
+}
+
+/**
+ * World zoom for a canvas of this size, in canvas pixels (see canvasSize): world
+ * units visible = canvas pixels / zoom, whatever the display scaling. Always a whole number:
+ * artwork is drawn at 2x, 3x and 6x, and a fractional zoom makes art pixels uneven
+ * (at 1.5x the 3x layers came out 4 and 5 screen pixels wide, and shimmered).
+ * Phones keep 1x; larger screens take the largest zoom that still shows 400 world
+ * units of height.
+ */
+export function cameraZoomFor(width: number, height: number): number {
+  if (width <= 600) return 1;
+  return Math.max(1, Math.floor(height / 400));
+}
+
 export class Viewport {
   constructor(private scene: Phaser.Scene, private resize: (layout: ViewLayout) => void) {}
 
@@ -41,9 +66,8 @@ export class Viewport {
       // Each canvas pixel occupies a whole number of device pixels. Compact
       // screens show more of the world so the house does not fill the viewport.
       const pixelScale = Math.max(1, Math.round(pixelRatio));
-      const width = Math.ceil(bounds.width * pixelRatio / pixelScale);
-      const height = Math.ceil(bounds.height * pixelRatio / pixelScale);
-      const cameraZoom = bounds.width <= 600 ? 1 : 1.5;
+      const { width, height } = canvasSize(bounds.width, bounds.height, pixelRatio);
+      const cameraZoom = cameraZoomFor(width, height);
       const layout = `${width}:${height}:${pixelRatio}:${cameraZoom}`;
       if (layout === lastLayout) return;
       lastLayout = layout;

@@ -6,6 +6,10 @@ import { Viewport, type ViewLayout } from './viewport';
 import { DogFollower } from './dog-follower';
 import { PartnerPlayback } from './partner-playback';
 import { snapFollowerX } from './pixel-grid';
+// Characters, dog, mailbox and houses in one atlas, packed by scripts/pack_sprites.py.
+// Imported through Vite, so the image gets a content-hashed name and caches for good.
+import spritesImage from './sprites/sprites.png?url';
+import spritesData from './sprites/sprites.json';
 
 const sides: Side[] = ['left', 'right'];
 const groundY = 12;
@@ -26,30 +30,12 @@ export class WorldView {
   constructor(private scene: Phaser.Scene) {}
 
   preload(onLoadError: () => void): void {
-    for (const [action, count] of [['idle', 2], ['run', 4], ['jump', 7], ['sit', 2]] as const) {
-      for (let frame = 1; frame <= count; frame++) {
-        this.scene.load.image(`dog-${action}-${frame}`, `/dog/dog_${action}_${frame}.png`);
-      }
-    }
+    this.scene.load.atlas('sprites', spritesImage, spritesData);
     for (const name of ['pointer', 'hover', 'grab']) {
       this.scene.load.image(`cursor-${name}`, `/ui/hand_${name}.png`);
     }
     for (const layer of ['Sky', 'Clouds', 'Bushes', 'Trees', 'Ground']) {
       this.scene.load.image(layer, `/background/bg_Autumn/Layers/${layer}.png`);
-    }
-    for (const side of sides) {
-      this.scene.load.image(`house-${side}`, `/buildings/house${side === 'left' ? 'A' : 'B'}.png`);
-      for (const backpack of [false, true]) {
-        const folder = `${side === 'left' ? 'A' : 'B'}${backpack ? 'withBackpack' : ''}`;
-        const prefix = `${side}-${backpack}`;
-        for (let frame = 1; frame <= 19; frame++) {
-          const action = frame <= 3 ? 'idle' : frame <= 11 ? 'run' : frame <= 14 ? 'jump' : frame <= 16 ? 'fall' : 'land';
-          this.scene.load.image(`${prefix}-${frame}`, `/player/${folder}/${action}/player${frame}.png`);
-        }
-      }
-    }
-    for (let frame = 1; frame <= 6; frame++) {
-      this.scene.load.image(`mail-${frame}`, `/mailbox/mailbox-close-anim0${frame}.png`);
     }
     this.scene.load.on('loaderror', onLoadError);
   }
@@ -77,16 +63,16 @@ export class WorldView {
     }
 
     this.scene.anims.create({
-      key: 'mail-use', frames: Array.from({ length: 6 }, (_, i) => ({ key: `mail-${i + 1}` })),
+      key: 'mail-use', frames: Array.from({ length: 6 }, (_, i) => ({ key: 'sprites', frame: `mail-${i + 1}` })),
       frameRate: 6,
     });
     for (const side of sides) {
-      this.scene.add.image(world.desks[side], groundY, `house-${side}`).setOrigin(0.5, 1).setScale(6);
-      const mailbox = this.scene.add.sprite(world.mailboxes[side], groundY, 'mail-6')
+      this.scene.add.image(world.desks[side], groundY, 'sprites', `house-${side}`).setOrigin(0.5, 1).setScale(6);
+      const mailbox = this.scene.add.sprite(world.mailboxes[side], groundY, 'sprites', 'mail-6')
         .setOrigin(0.5, 42 / 44).setScale(2);
       this.mailboxes.set(side, mailbox);
       const prefix = `${side}-false`;
-      const sprite = this.scene.add.sprite(world.desks[side], groundY, `${prefix}-1`)
+      const sprite = this.scene.add.sprite(world.desks[side], groundY, 'sprites', `${prefix}-1`)
         .setOrigin(0.5, 47 / 64).setScale(2).setDepth(5).setAlpha(0.35);
       this.sprites.set(side, sprite);
       for (const backpack of [false, true]) {
@@ -95,7 +81,7 @@ export class WorldView {
         ] as const) {
           this.scene.anims.create({
             key: `${side}-${backpack}-${action}`,
-            frames: Array.from({ length: count }, (_, i) => ({ key: `${side}-${backpack}-${start + i}` })),
+            frames: Array.from({ length: count }, (_, i) => ({ key: 'sprites', frame: `${side}-${backpack}-${start + i}` })),
             frameRate: action === 'idle' ? 4 : action === 'land' ? 20 : 12,
             repeat: action === 'land' ? 0 : -1,
           });
@@ -106,11 +92,11 @@ export class WorldView {
 
     for (const [action, count, frameRate] of [['idle', 2, dogRestFrameRate], ['run', 4, 12], ['sit', 2, dogRestFrameRate]] as const) {
       this.scene.anims.create({
-        key: `dog-${action}`, frames: Array.from({ length: count }, (_, i) => ({ key: `dog-${action}-${i + 1}` })),
+        key: `dog-${action}`, frames: Array.from({ length: count }, (_, i) => ({ key: 'sprites', frame: `dog-${action}-${i + 1}` })),
         frameRate, repeat: -1,
       });
     }
-    this.dog = this.scene.add.sprite(world.desks.left - 52, groundY, 'dog-idle-1')
+    this.dog = this.scene.add.sprite(world.desks.left - 52, groundY, 'sprites', 'dog-idle-1')
       .setOrigin(0.5, 1).setScale(2).setDepth(5).setAlpha(0.35).play('dog-idle');
 
     const viewport = new Viewport(this.scene, layout => this.resize(layout, playerX()));
@@ -217,7 +203,7 @@ export class WorldView {
         ? Phaser.Math.Clamp(Math.floor((vy + this.dogFollower.jumpSpeed) / (2 * this.dogFollower.jumpSpeed) * 6) + 1, 1, 6)
         : landingTicks > world.landingTicks / 2 ? 6 : 7;
       this.dog.anims.stop();
-      this.dog.setTexture(`dog-jump-${frame}`);
+      this.dog.setTexture('sprites', `dog-jump-${frame}`);
       // Jump artwork moves inside its canvas; align its feet with the dog's jump arc.
       footOffset = (32 - [32, 32, 26, 16, 21, 32, 32][frame - 1]) * 2;
     } else if (sitting) {
