@@ -6,6 +6,18 @@ export interface ViewLayout {
   cameraZoom: number;
 }
 
+/**
+ * World zoom for a container of this size in CSS pixels. Always a whole number:
+ * artwork is drawn at 2x, 3x and 6x, and a fractional zoom makes art pixels uneven
+ * (at 1.5x the 3x layers came out 4 and 5 screen pixels wide, and shimmered).
+ * Phones keep 1x; larger screens take the largest zoom that still shows 400 world
+ * units of height.
+ */
+export function cameraZoomFor(width: number, height: number): number {
+  if (width <= 600) return 1;
+  return Math.max(1, Math.floor(height / 400));
+}
+
 export class Viewport {
   constructor(private scene: Phaser.Scene, private resize: (layout: ViewLayout) => void) {}
 
@@ -43,7 +55,7 @@ export class Viewport {
       const pixelScale = Math.max(1, Math.round(pixelRatio));
       const width = Math.ceil(bounds.width * pixelRatio / pixelScale);
       const height = Math.ceil(bounds.height * pixelRatio / pixelScale);
-      const cameraZoom = bounds.width <= 600 ? 1 : 1.5;
+      const cameraZoom = cameraZoomFor(bounds.width, bounds.height);
       const layout = `${width}:${height}:${pixelRatio}:${cameraZoom}`;
       if (layout === lastLayout) return;
       lastLayout = layout;
