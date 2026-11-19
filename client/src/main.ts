@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Connection } from './connection';
 import { WorldScene, frameTiming } from './scene';
 import { UI } from './ui';
-import { faviconUrl, fontUrl } from './art';
+import { faviconUrl, fontUrl, preloadArt } from './art';
 import type { Message, Side } from './protocol';
 import world from '../../world.json';
 import './style.css';
@@ -10,10 +10,15 @@ import './style.css';
 // Imported like all art: an index.html link can't reach ../assets in development.
 document.head.append(Object.assign(document.createElement('link'), { rel: 'icon', type: 'image/png', href: faviconUrl }));
 
+// Font and interface art are ready before anything is shown, so no screen fills in
+// piece by piece the first time it opens.
 const font = new FontFace('GameFont', `url("${fontUrl}")`);
-await font.load()
-  .then(font => document.fonts.add(font))
-  .catch(error => console.warn('Font failed to load', error));
+await Promise.all([
+  font.load()
+    .then(font => document.fonts.add(font))
+    .catch(error => console.warn('Font failed to load', error)),
+  preloadArt(),
+]);
 
 const connection = new Connection(receive, () => ui.disconnected());
 const ui = new UI(message => connection.send(message), side => connection.connect(side), action => scene.interact(action), connection);

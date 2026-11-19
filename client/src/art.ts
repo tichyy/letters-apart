@@ -25,3 +25,20 @@ export const cursorArt = { pointer: handPointer, hover: handHover, grab: handGra
 export const backgroundArt = { Sky: sky, Clouds: clouds, Bushes: bushes, Trees: trees, Ground: ground };
 export const fontUrl = font;
 export const faviconUrl = favicon;
+
+const decoded: HTMLImageElement[] = [];
+
+/**
+ * Decode the interface art before the game starts, so an <img> showing it never
+ * paints a blank frame first. The images are kept so the browser keeps them decoded.
+ */
+export async function preloadArt(): Promise<void> {
+  const urls = [...Object.values(postcardArt), ...Object.values(stampArt), ...Object.values(cursorArt)];
+  await Promise.all(urls.map(async url => {
+    const image = new Image();
+    image.src = url;
+    decoded.push(image);
+    // A failed decode only costs that image's fade-in; it must not stop the game.
+    await image.decode().catch(() => {});
+  }));
+}
