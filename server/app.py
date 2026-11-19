@@ -23,6 +23,19 @@ from .store import Store
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class GameFiles(StaticFiles):
+    """The built game. Vite names the bundle by its content hash, so a name never
+    changes meaning and can be kept for a year; other files (sprites, fonts) keep
+    their names across releases, so browsers keep them but check on each visit."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = (
+            "max-age=31536000, immutable" if path.startswith("assets/") else "no-cache"
+        )
+        return response
+
+
 def create_app(
     database: Path | None = None, *, image_storage: ImageStorage | None = None
 ) -> FastAPI:
@@ -187,7 +200,7 @@ def create_app(
                 dist / "index.html", headers={"Cache-Control": "no-cache"}
             )
 
-        app.mount("/", StaticFiles(directory=dist, html=True), name="game")
+        app.mount("/", GameFiles(directory=dist, html=True), name="game")
     else:
 
         @app.get("/")
