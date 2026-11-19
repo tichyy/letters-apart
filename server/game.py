@@ -22,6 +22,10 @@ WORLD = json.loads((Path(__file__).resolve().parent.parent / "world.json").read_
 # Non-movement messages (interactions, reads, writes) per peer: sustained rate and burst.
 MESSAGE_RATE = 10
 MESSAGE_BURST = 20
+# How far a client's inputs may run ahead of the server: the input queue limit, and
+# the catch-up allowance a stalled connection earns. They must match, or a backlog
+# larger than the allowance never drains and the player stays permanently delayed.
+MAX_BUFFERED_INPUTS = 2 * WORLD["tickRate"]
 # /healthz fails when no tick has completed successfully within this many seconds.
 HEALTHY_WITHIN = 1.0
 logger = logging.getLogger(__name__)
@@ -41,6 +45,9 @@ class Player:
     jump_chain: int = 0
     landing_ticks: int = 0
     jump_held: bool = False
+    # Physics steps applied. Partners play this player back on this timeline, which
+    # stays evenly spaced however unevenly the inputs arrived.
+    steps: int = 0
     moving: bool = False
     ack: int = 0
     received: int = 0
@@ -108,6 +115,7 @@ class Peer:
 
 def move(player: Player, direction: int, jump: bool) -> None:
     """Advance one input. Must match client/src/movement.ts; see test_movement_parity."""
+    player.steps += 1
     player.jump_held = jump
     player.moving = direction != 0
     if direction:
@@ -144,14 +152,12 @@ class Game:
         }
         self.peers: dict[str, Peer] = {}
         self.mail = {side: store.summary(side) for side in SIDES}
-        self.time = 0.0
         self.last_tick: float | None = None
         self.last_error = -math.inf
 
     def snapshot(self) -> dict:
         return {
             "type": "state",
-            "time": self.time,
             "players": [
                 {
                     "side": p.side,
@@ -161,6 +167,7 @@ class Game:
                     "facing": p.facing,
                     "jumpChain": p.jump_chain,
                     "landingTicks": p.landing_ticks,
+                    "step": p.steps,
                     "moving": p.moving,
                     "ack": p.ack,
                     "connected": p.side in self.peers,
@@ -171,12 +178,11 @@ class Game:
         }
 
     def step(self, seconds: float = 1 / WORLD["tickRate"]) -> None:
-        self.time += seconds * 1000
         for player in self.players.values():
             # Credit is earned by wall time, not loop iterations. Delayed packets
             # can catch up without granting faster-than-real-time movement.
             player.credit = min(
-                WORLD["tickRate"], player.credit + seconds * WORLD["tickRate"]
+                MAX_BUFFERED_INPUTS, player.credit + seconds * WORLD["tickRate"]
             )
             while player.inputs and player.credit >= 1 - 1e-9:
                 seq, direction, jump = player.inputs.popleft()
@@ -205,17 +211,16 @@ class Game:
         loop = asyncio.get_running_loop()
         deadline = loop.time()
         previous = deadline - 1 / WORLD["tickRate"]
-        tick = 0
         while True:
             now = loop.time()
             elapsed, previous = max(0, now - previous), now
-            tick += 1
             try:
                 self.step(elapsed)
-                if tick % 2 == 0:
-                    state = self.snapshot()
-                    for peer in list(self.peers.values()):
-                        peer.send(state)
+                # Every tick, so partners get each step as soon as it is applied
+                # and can play back with a shallower buffer.
+                state = self.snapshot()
+                for peer in list(self.peers.values()):
+                    peer.send(state)
                 # Only a completed tick counts as alive: a loop that keeps failing
                 # is running but frozen, and /healthz must report it.
                 self.last_tick = loop.time()
@@ -323,7 +328,7 @@ class Game:
                 ):
                     raise Desync("Invalid movement sequence.")
                 previous = seq
-            if len(player.inputs) + len(inputs) > 120:
+            if len(player.inputs) + len(inputs) > MAX_BUFFERED_INPUTS:
                 raise Desync("Too many queued movement inputs.")
             for item in inputs:
                 player.inputs.append(

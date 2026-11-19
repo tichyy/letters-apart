@@ -34,14 +34,16 @@ export interface Player extends Motion {
   facing: Direction;
   moving: boolean;
   ack: number;
+  // Physics steps the server has applied to this player: the partner playback clock.
+  step: number;
   connected: boolean;
   carrying: boolean;
   unread: number;
 }
 
 export type Message =
-  | { type: 'welcome'; side: Side; time?: number; players: Player[] }
-  | { type: 'state'; time?: number; players: Player[] }
+  | { type: 'welcome'; side: Side; players: Player[] }
+  | { type: 'state'; players: Player[] }
   | { type: 'compose' }
   | { type: 'written'; requestId?: string }
   | { type: 'mailbox'; postcards: Postcard[] }

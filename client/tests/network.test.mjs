@@ -17,11 +17,11 @@ const Phaser={Scene:class{},Math:{Clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),Linea
 const performance={now:()=>globalThis.networkTestTime};
 class Controls {value=0;direction(){return this.value}jump(){return false}release(){this.value=0}}
 `;
-const code = stubs + await source('movement') + await source('world-view') + await source('scene');
+const code = stubs + await source('movement') + await source('partner-playback') + await source('world-view') + await source('scene');
 const { WorldScene, WorldView } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const dt = 1000 / 60;
 const player = (side, x = world.desks[side], ack = 0) => ({
-  side, x, ack, y: 0, vy: 0, jumpChain: 0, landingTicks: 0,
+  side, x, ack, step: ack, y: 0, vy: 0, jumpChain: 0, landingTicks: 0,
   facing: 1, moving: false, connected: true, carrying: false, unread: 0,
 });
 
@@ -117,81 +117,142 @@ test('a local landing correction also finishes exactly instead of keeping a fall
   assert.equal(scene.correction.y, 0);
 });
 
-test('remote snapshots remain smooth and time never rewinds during delayed packet bursts', () => {
-  globalThis.networkTestTime = 50;
-  const view = remoteView();
-  const initial = player('left', 1000);
-  view.recordPartner(initial, true, 0);
-  let due = 0;
-  const packets = [];
-  for (let time = 1000 / 30; time <= 2000; time += 1000 / 30) {
-    due = Math.max(due, time + 50 + (time >= 500 && time <= 650 ? 180 : 0));
-    packets.push({ due, time, player: { ...initial, x: 1000 + world.speed * time / 1000, moving: true } });
-  }
-  let latest = initial, previousX, clock = -Infinity;
-  for (let now = 50; now < 2200; now += dt) {
-    globalThis.networkTestTime = now;
-    while (packets.length && packets[0].due <= now) {
-      const packet = packets.shift(); latest = packet.player;
-      view.recordPartner(latest, false, packet.time);
-    }
-    view.renderPlayers([latest, player('right')], 'right', player('right'), 0, dt);
-    assert.ok(view.remoteTime >= clock);
-    clock = view.remoteTime;
-    const x = view.sprites.get('left').x;
-    if (previousX !== undefined) assert.ok(Math.abs(x - previousX) <= 6);
-    previousX = x;
-  }
-});
+const runSpeed = world.speed / world.tickRate;
+// The partner's state after `step` steps of running right from x = 1000.
+const running = (step, extra = {}) => ({ ...player('left', 1000 + step * runSpeed, step), moving: true, ...extra });
 
-test('a remote landing reaches ground exactly and leaves the falling animation', () => {
+// Deliver `stream` ([arrival ms, state]) to a partner view, drawing at 60 Hz until `until` ms.
+function play(stream, until) {
   globalThis.networkTestTime = 0;
   const view = remoteView();
-  let state = { ...player('left', 1000, 1), y: -40, vy: 200 };
-  view.recordPartner(state, true, 0);
-  for (let frame = 0; frame < 120; frame++) {
-    const now = frame * dt;
-    globalThis.networkTestTime = now;
-    if (frame === 6) state = { ...state, y: 0, vy: 0, landingTicks: 9 };
-    if (frame >= 6 && frame % 2 === 0) {
-      state = { ...state, ack: frame, landingTicks: Math.max(0, 15 - frame) };
-      view.recordPartner(state, false, now);
-    }
-    drawRemote(view, state, now);
-  }
+  const frames = [];
+  let next = 0, flips = 0, flip;
   const sprite = view.sprites.get('left');
-  assert.equal(view.remoteRendered.y, 0);
-  assert.equal(sprite.y, 12);
-  assert.match(sprite.anims.currentAnim.key, /-idle$/);
+  sprite.setFlipX = function (value) { if (flip !== undefined && value !== flip) flips++; flip = value; return this; };
+  for (let now = 0; now <= until; now += dt) {
+    while (next < stream.length && stream[next][0] <= now) {
+      view.recordPartner(stream[next][1], next === 0);
+      next++;
+    }
+    if (next === 0) continue;
+    drawRemote(view, stream[next - 1][1], now);
+    frames.push({ now, x: sprite.x, y: sprite.y, animation: sprite.anims.currentAnim.key });
+  }
+  return { frames, flips: () => flips };
+}
+
+// Seeded jitter, so every run sees the same "bad connection".
+function jittered(maxMs, seed = 7) {
+  let value = seed, due = 0;
+  return time => {
+    value = (value * 16807) % 2147483647;
+    due = Math.max(due, time + (value / 2147483647) * maxMs); // TCP delivers in order.
+    return due;
+  };
+}
+
+test('partner moves evenly despite late, bursty delivery from both connections', () => {
+  const delay = jittered(120);
+  const stream = [];
+  for (let step = 0; step <= 300; step++) stream.push([delay(step * dt), running(step)]);
+  const { frames, flips } = play(stream, 5000);
+  const steps = frames.slice(60, 280).map((frame, i, all) => i && frame.x - all[i - 1].x).slice(1);
+  assert.equal(steps.filter(dx => dx < 0).length, 0, 'never moves backwards');
+  assert.equal(flips(), 0, 'never turns around');
+  const uneven = steps.filter(dx => Math.abs(dx - runSpeed) > runSpeed * 0.5).length;
+  assert.ok(uneven / steps.length < 0.05, `uneven frames: ${uneven}/${steps.length}`);
 });
 
-test('repeated stale run flags settle to idle instead of running in place', () => {
-  globalThis.networkTestTime = 0;
-  const view = remoteView();
-  view.recordPartner(player('left', 995), true, 0);
-  const state = { ...player('left', 1000, 2), moving: true };
-  for (let frame = 1; frame < 180; frame++) {
-    const now = frame * dt;
-    globalThis.networkTestTime = now;
-    if (frame % 2 === 0) view.recordPartner(state, false, now);
-    drawRemote(view, state, now);
-  }
-  assert.match(view.sprites.get('left').anims.currentAnim.key, /-idle$/);
-  assert.ok(view.remoteRendered.x < 1025);
+test('a late partner keeps running briefly, then stands instead of running in place', () => {
+  const stream = [];
+  for (let step = 0; step <= 60; step++) stream.push([step * dt, running(step)]);
+  // Their uplink stalls: the server keeps repeating the last state.
+  for (let frame = 61; frame < 180; frame++) stream.push([frame * dt, running(60)]);
+  const { frames } = play(stream, 3000);
+  const last = frames.at(-1);
+  assert.match(last.animation, /-idle$/);
+  assert.ok(last.x <= 1000 + (60 + 15) * runSpeed + 0.5);
 });
 
-test('a stalled mid-jump pose falls, lands, and settles without fresh inputs', () => {
+test('a partner stalled mid-jump still falls and lands', () => {
+  const state = running(10, { y: -60, vy: -200 });
+  const stream = Array.from({ length: 120 }, (_, frame) => [frame * dt, state]);
+  const { frames } = play(stream, 2000);
+  assert.equal(frames.at(-1).y, 12); // groundY, exactly
+  assert.match(frames.at(-1).animation, /-idle$/);
+});
+
+test('a paused partner waits, then sets off without lurching', () => {
+  const resting = { ...player('left', 1000, 100) };
+  const stream = Array.from({ length: 120 }, (_, frame) => [frame * dt, resting]);
+  for (let step = 1; step <= 60; step++) {
+    stream.push([(120 + step) * dt, { ...running(step), x: 1000 + step * runSpeed, step: 100 + step }]);
+  }
+  const { frames } = play(stream, 3500);
+  const after = frames.filter(frame => frame.now >= 120 * dt);
+  for (let i = 1; i < after.length; i++) {
+    assert.ok(after[i].x - after[i - 1].x <= runSpeed * 1.6, `lurch at frame ${i}`);
+  }
+});
+
+test('after a long stall the partner catches up and returns to normal speed', () => {
+  const stream = [];
+  for (let step = 0; step <= 360; step++) {
+    // Steps 60-120 are held back and arrive together at the end of a 1 s stall.
+    const time = step * dt;
+    stream.push([step >= 60 && step <= 120 ? 121 * dt : time, running(step)]);
+  }
+  const { frames, flips } = play(stream, 6000);
+  // Whole-pixel drawing makes single frames alternate 2 and 3 px; compare 15-frame averages.
+  const settled = frames.filter(frame => frame.now >= 2500 && frame.now <= 5500);
+  for (let i = 15; i < settled.length; i += 15) {
+    const speed = (settled[i].x - settled[i - 15].x) / 15;
+    assert.ok(Math.abs(speed - runSpeed) <= runSpeed * 0.1, `speed ${speed} at ${settled[i].now}`);
+  }
+  assert.equal(flips(), 0);
+  // ...and the delay drops back too: within 100 ms of their latest real position.
+  const end = frames.find(frame => frame.now >= 5500);
+  const latest = 1000 + Math.floor(end.now / dt) * runSpeed;
+  assert.ok(latest - end.x <= 6 * runSpeed, `${((latest - end.x) / runSpeed).toFixed(1)} steps behind`);
+});
+
+test('own movement advances every frame on a high-refresh display', () => {
+  const { scene } = client();
+  scene.controls.value = 1;
+  const frame = 1000 / 144, xs = [];
+  for (let i = 0; i < 144; i++) {
+    scene.update(i * frame, frame);
+    xs.push(scene.drawn.x);
+  }
+  const steps = xs.slice(10).map((x, i, all) => i && x - all[i - 1]).slice(1);
+  const ideal = world.speed / 144;
+  for (const dx of steps) assert.ok(Math.abs(dx - ideal) < ideal * 0.05, `frame moved ${dx}, expected ${ideal}`);
+});
+
+test('a hidden tab keeps receiving for ten minutes without growing or lurching on return', () => {
   globalThis.networkTestTime = 0;
   const view = remoteView();
-  const state = { ...player('left', 1000, 10), y: -60, vy: -200, moving: true };
-  view.recordPartner(state, true, 0);
-  for (let frame = 1; frame < 180; frame++) {
-    const now = frame * dt;
-    globalThis.networkTestTime = now;
-    // The server can still send snapshots while the owner's inputs are stalled.
-    if (frame % 2 === 0) view.recordPartner(state, false, now);
-    drawRemote(view, state, now);
+  // Rendering stops while hidden; snapshots keep arriving at 60 Hz.
+  view.recordPartner(running(0), true);
+  for (let step = 1; step <= 10 * 60 * 60; step++) view.recordPartner(running(step), false);
+  assert.ok(view.partner.samples.length <= 64, `${view.partner.samples.length} snapshots retained`);
+  const latest = running(10 * 60 * 60);
+  const sprite = drawRemote(view, latest, 0);
+  // The fade-out is bounded: the first visible frame is near the partner, not 10 minutes back.
+  assert.ok(Math.abs(sprite.x - latest.x) < 100, `drawn ${(latest.x - sprite.x).toFixed(0)} units behind`);
+});
+
+test('the partner animation follows the drawn height after a delayed landing', () => {
+  // Mid-jump at the apex, then a snapshot arrives showing they landed long ago.
+  const air = { ...player('left', 1000, 0), y: -44, vy: 0 };
+  const landed = { ...player('left', 1000, 40) };
+  const stream = [[0, air], [3 * dt, landed]];
+  for (let frame = 4; frame < 120; frame++) stream.push([frame * dt, landed]);
+  const { frames } = play(stream, 2000);
+  for (const frame of frames) {
+    if (frame.y < 12) assert.match(frame.animation, /-(jump|fall)$/, `${frame.animation} at y ${frame.y}`);
   }
-  assert.equal(view.remoteRendered.y, 0);
-  assert.match(view.sprites.get('left').anims.currentAnim.key, /-idle$/);
+  assert.ok(frames.some(frame => /-land$/.test(frame.animation)), 'shows the landing');
+  assert.equal(frames.at(-1).y, 12);
+  assert.match(frames.at(-1).animation, /-idle$/);
 });

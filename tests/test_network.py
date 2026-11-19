@@ -123,12 +123,6 @@ def test_reconnect_only_acknowledges_applied_inputs_and_finishes_falling(game):
     assert player.ack == 2
 
 
-def test_snapshots_use_elapsed_time_instead_of_loop_count(game):
-    game.step(0.02)
-    game.step(0.08)
-    assert game.snapshot()["time"] == pytest.approx(100)
-
-
 def test_slow_writer_gets_latest_state_without_losing_reliable_events():
     peer = Peer(None, "test-token")
     peer.send({"type": "state", "time": 1})
@@ -138,3 +132,38 @@ def test_slow_writer_gets_latest_state_without_losing_reliable_events():
     assert peer.outbox.get_nowait() == {"type": "delivered"}
     assert peer.outbox.get_nowait() == {"type": "state", "time": 3}
     assert peer.outbox.empty()
+
+
+@pytest.mark.parametrize("stall", [0.5, 1.5, 1.9])
+def test_backlog_after_a_stall_drains_instead_of_delaying_forever(game, stall):
+    # The client keeps producing 60 inputs/s; its uplink delivers nothing for
+    # `stall` seconds, then everything at once, and then resumes normally.
+    sent, held = 0, []
+    for tick in range(60 * 6):
+        sent += 1
+        held.append(sent)
+        if not 60 <= tick < 60 + stall * 60:
+            inputs(game, held[0], len(held))
+            held = []
+        game.step()
+    assert sent - game.players["left"].ack <= 1
+
+
+def test_catch_up_allowance_never_exceeds_elapsed_time(game):
+    # Withholding inputs earns at most the buffered limit: never faster than real time.
+    for _ in range(10 * 60):
+        game.step()
+    inputs(game, 1, 120)
+    game.step(0)
+    assert game.players["left"].ack == 120
+    inputs(game, 121, 8)
+    game.step(0)
+    assert game.players["left"].ack == 120
+
+
+def test_snapshots_count_each_players_physics_steps(game):
+    inputs(game, 1, 5)
+    for _ in range(5):
+        game.step()
+    states = {p["side"]: p for p in game.snapshot()["players"]}
+    assert states["left"]["step"] == 5 and states["right"]["step"] == 0

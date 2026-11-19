@@ -8,6 +8,8 @@ import type { Input, Message, Motion, Player, Side } from './protocol';
 import type { UI } from './ui';
 
 const stepTime = 1000 / world.tickRate;
+// Matches the server's MAX_BUFFERED_INPUTS: how far prediction may run ahead of it.
+const maxPending = 2 * world.tickRate;
 
 export class WorldScene extends Phaser.Scene {
   private view = new WorldView(this);
@@ -18,6 +20,8 @@ export class WorldScene extends Phaser.Scene {
   private seq = 0;
   private correction = { x: 0, y: 0 };
   private local: Motion = { x: 0, y: 0, vy: 0, jumpChain: 0, landingTicks: 0 };
+  // The state one step earlier. Frames fall between steps, so draw a blend of both.
+  private previous: Motion = this.local;
   private accumulator = 0;
   private active = false;
 
@@ -39,9 +43,7 @@ export class WorldScene extends Phaser.Scene {
 
   receive(message: Message): void {
     if (message.type !== 'welcome' && message.type !== 'state') return;
-    const previous = this.players.length ? {
-      x: this.local.x + this.correction.x, y: this.local.y + this.correction.y,
-    } : undefined;
+    const before = this.players.length ? this.local : undefined;
     this.players = message.players;
     const own = this.players.find(player => player.side === this.connection.side);
     if (!own) return;
@@ -55,11 +57,16 @@ export class WorldScene extends Phaser.Scene {
       this.pending = this.pending.filter(input => input.seq > own.ack);
       this.local = this.pending.reduce<Motion>(move, own);
     }
-    if (previous) {
-      this.correction = { x: previous.x - this.local.x, y: previous.y - this.local.y };
+    if (before) {
+      // Shift the drawn path by the authority's change, then fade that shift out.
+      const dx = before.x - this.local.x, dy = before.y - this.local.y;
+      this.correction = { x: this.correction.x + dx, y: this.correction.y + dy };
+      this.previous = { ...this.previous, x: this.previous.x - dx, y: this.previous.y - dy };
+    } else {
+      this.previous = this.local;
     }
     const partner = this.players.find(player => player.side !== own.side)!;
-    this.view.recordPartner(partner, message.type === 'welcome', message.time);
+    this.view.recordPartner(partner, message.type === 'welcome');
   }
 
   interact(type: 'interact' | 'gallery' = 'interact'): void {
@@ -93,28 +100,34 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
     const direction = this.controls.direction();
-    if (this.pending.length >= 120) {
+    if (this.pending.length >= maxPending) {
       // Recover from a prolonged stall rather than freezing with growing time debt.
       this.accumulator = 0;
       this.connection.connect(this.connection.side!);
       return;
     }
     this.accumulator += Math.min(delta, 100);
-    while (this.accumulator >= stepTime && this.pending.length < 120) {
+    while (this.accumulator >= stepTime && this.pending.length < maxPending) {
       this.accumulator -= stepTime;
       const input = { seq: ++this.seq, direction, jump: this.controls.jump() };
       this.pending.push(input);
       this.outgoing.push(input);
+      this.previous = this.local;
       this.local = move(this.local, input);
-      if (this.outgoing.length >= 2) this.flush();
     }
+    // Send at once: every frame of batching would delay the partner's view of us.
+    this.flush();
 
     const decay = Math.exp(-Math.min(delta, 100) / 100);
     this.correction.x *= decay;
     this.correction.y *= decay;
     if (Math.abs(this.correction.x) < 0.1) this.correction.x = 0;
     if (Math.abs(this.correction.y) < 0.1) this.correction.y = 0;
-    const rendered = { ...this.local, x: this.local.x + this.correction.x, y: Math.min(0, this.local.y + this.correction.y) };
+    // Blend between the last two steps by how far this frame is into the next one.
+    const t = Math.min(1, this.accumulator / stepTime);
+    const x = this.previous.x + (this.local.x - this.previous.x) * t;
+    const y = this.previous.y + (this.local.y - this.previous.y) * t;
+    const rendered = { ...this.local, x: x + this.correction.x, y: Math.min(0, y + this.correction.y) };
     this.view.renderPlayers(this.players, this.connection.side!, rendered, direction, delta);
     this.view.followPlayer(rendered.x);
     const anchor = this.ui.noticeAnchor;

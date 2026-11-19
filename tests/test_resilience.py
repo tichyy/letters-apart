@@ -73,7 +73,8 @@ def test_game_loop_keeps_ticking_after_an_unexpected_error(game, monkeypatch, ca
     async def scenario():
         loop = asyncio.create_task(game.run())
         await asyncio.sleep(0.1)
-        assert not loop.done() and game.healthy() and game.time > 0
+        # healthy() needs a tick that completed after the failure.
+        assert not loop.done() and game.healthy()
         loop.cancel()
 
     asyncio.run(scenario())

@@ -120,7 +120,7 @@ def create_app(
         game.players[side].paused = False
         peer.send(
             {
-                "type": "welcome", "side": side, "time": game.time,
+                "type": "welcome", "side": side,
                 "players": game.snapshot()["players"],
             }
         )
