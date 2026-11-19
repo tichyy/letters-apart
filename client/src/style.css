@@ -1,7 +1,7 @@
 :root {
-  --cursor-pointer: url('/ui/hand_pointer.png') 5 2, default;
-  --cursor-hover: url('/ui/hand_hover.png') 5 2, pointer;
-  --cursor-grab: url('/ui/hand_grab.png') 5 2, grabbing;
+  --cursor-pointer: url('../../assets/ui/hand_pointer.png') 5 2, default;
+  --cursor-hover: url('../../assets/ui/hand_hover.png') 5 2, pointer;
+  --cursor-grab: url('../../assets/ui/hand_grab.png') 5 2, grabbing;
   cursor: var(--cursor-pointer);
   font-family: 'GameFont', monospace;
   font-size: 32px;
@@ -20,6 +20,14 @@ body:active, body:has(:active) {
   cursor: var(--cursor-grab);
 }
 #game { position: fixed; inset: 0; touch-action: none; overflow: hidden; }
+/* The controls are HTML and would appear before the world: hold both back until
+   the scene is built, then show them together. */
+:is(#game, #interface, dialog, dialog::backdrop) { transition: opacity 200ms ease-out; }
+body[data-loading] :is(#game, #interface) { opacity: 0; }
+/* Modal dialogs render in the top layer, which ancestor opacity doesn't reach, so
+   hold them back directly; hidden also keeps them from being clicked or focused. */
+body[data-loading] :is(dialog, dialog::backdrop) { opacity: 0; visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { :is(#game, #interface, dialog, dialog::backdrop) { transition: none; } }
 canvas { display: block; image-rendering: pixelated; }
 #interface {
   position: fixed; left: var(--viewport-left, 0px); top: var(--viewport-top, 0px);
@@ -148,39 +156,39 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
 }
 .postcard-turn {
   left: 66.9811%; top: 0; background-position: 76.9912% 6.1947%;
-  background-image: url('/ui/button_rotate1.png');
+  background-image: url('../../assets/ui/button_rotate1.png');
 }
 .postcard-pack {
   left: 85.8491%; top: 78.3133%; background-position: 94.6903% 63.7168%;
-  background-image: url('/ui/button_send1.png');
+  background-image: url('../../assets/ui/button_send1.png');
 }
 .postcard-reset, .postcard-delete {
   left: 0; top: 0; background-position: 14.1593% 6.1947%;
-  background-image: url('/ui/button_reset1.png');
+  background-image: url('../../assets/ui/button_reset1.png');
 }
-.postcard-delete { background-image: url('/ui/button_delete1.png'); }
+.postcard-delete { background-image: url('../../assets/ui/button_delete1.png'); }
 .postcard-delete:disabled { opacity: 1; }
 .postcard-pack:disabled, .postcard-reset:disabled, .postcard-delete:disabled { cursor: var(--cursor-pointer); }
-.postcard-turn:focus-visible { background-image: url('/ui/button_rotate2.png'); outline: none; }
-.postcard-pack:enabled:focus-visible { background-image: url('/ui/button_send2.png'); outline: none; }
-.postcard-delete:enabled:focus-visible { background-image: url('/ui/button_delete2.png'); outline: none; }
-.postcard-reset:enabled:focus-visible { background-image: url('/ui/button_reset2.png'); outline: none; }
-.postcard-previous:enabled:focus-visible { background-image: url('/ui/button_left2.png'); outline: none; }
-.postcard-next:enabled:focus-visible { background-image: url('/ui/button_right2.png'); outline: none; }
+.postcard-turn:focus-visible { background-image: url('../../assets/ui/button_rotate2.png'); outline: none; }
+.postcard-pack:enabled:focus-visible { background-image: url('../../assets/ui/button_send2.png'); outline: none; }
+.postcard-delete:enabled:focus-visible { background-image: url('../../assets/ui/button_delete2.png'); outline: none; }
+.postcard-reset:enabled:focus-visible { background-image: url('../../assets/ui/button_reset2.png'); outline: none; }
+.postcard-previous:enabled:focus-visible { background-image: url('../../assets/ui/button_left2.png'); outline: none; }
+.postcard-next:enabled:focus-visible { background-image: url('../../assets/ui/button_right2.png'); outline: none; }
 @media (hover: hover) {
-  .postcard-turn:hover { background-image: url('/ui/button_rotate2.png'); }
-  .postcard-pack:enabled:hover { background-image: url('/ui/button_send2.png'); }
-  .postcard-delete:enabled:hover { background-image: url('/ui/button_delete2.png'); }
-  .postcard-reset:enabled:hover { background-image: url('/ui/button_reset2.png'); }
-  .postcard-previous:enabled:hover { background-image: url('/ui/button_left2.png'); }
-  .postcard-next:enabled:hover { background-image: url('/ui/button_right2.png'); }
+  .postcard-turn:hover { background-image: url('../../assets/ui/button_rotate2.png'); }
+  .postcard-pack:enabled:hover { background-image: url('../../assets/ui/button_send2.png'); }
+  .postcard-delete:enabled:hover { background-image: url('../../assets/ui/button_delete2.png'); }
+  .postcard-reset:enabled:hover { background-image: url('../../assets/ui/button_reset2.png'); }
+  .postcard-previous:enabled:hover { background-image: url('../../assets/ui/button_left2.png'); }
+  .postcard-next:enabled:hover { background-image: url('../../assets/ui/button_right2.png'); }
 }
-.postcard-turn:active { background-image: url('/ui/button_rotate3.png'); }
-.postcard-pack:enabled:active { background-image: url('/ui/button_send3.png'); }
-.postcard-delete:enabled:active { background-image: url('/ui/button_delete3.png'); }
-.postcard-reset:enabled:active { background-image: url('/ui/button_reset3.png'); }
-.postcard-previous:enabled:active { background-image: url('/ui/button_left3.png'); }
-.postcard-next:enabled:active { background-image: url('/ui/button_right3.png'); }
+.postcard-turn:active { background-image: url('../../assets/ui/button_rotate3.png'); }
+.postcard-pack:enabled:active { background-image: url('../../assets/ui/button_send3.png'); }
+.postcard-delete:enabled:active { background-image: url('../../assets/ui/button_delete3.png'); }
+.postcard-reset:enabled:active { background-image: url('../../assets/ui/button_reset3.png'); }
+.postcard-previous:enabled:active { background-image: url('../../assets/ui/button_left3.png'); }
+.postcard-next:enabled:active { background-image: url('../../assets/ui/button_right3.png'); }
 /* Continue the shared artwork canvas below the stage, from source y=90 to y=108. */
 .postcard-navigation { position: relative; aspect-ratio: 106 / 18; }
 .postcard-navigation button {
@@ -188,9 +196,9 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
   background-size: 914.2857% 853.3333%; background-position: 43.8596% 82.3009%;
 }
 .postcard-navigation button:disabled { cursor: var(--cursor-pointer); }
-.postcard-previous { left: 32.0755%; background-image: url('/ui/button_left1.png'); }
+.postcard-previous { left: 32.0755%; background-image: url('../../assets/ui/button_left1.png'); }
 .postcard-navigation .postcard-next {
-  left: 45.2830%; background-image: url('/ui/button_right1.png'); background-position: 56.1404% 82.3009%;
+  left: 45.2830%; background-image: url('../../assets/ui/button_right1.png'); background-position: 56.1404% 82.3009%;
 }
 /* The pixel font's outlines align cleanly at multiples of 16px. */
 :is(.interaction, .home-choices button) {
@@ -235,12 +243,12 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
     width: 52px; height: 52px; background-repeat: no-repeat; background-size: 512px 512px;
     image-rendering: pixelated; pointer-events: none;
   }
-  [data-control="left"] .control-art { background-image: url('/ui/controls_left1.png'); background-position: -200px -228px; }
-  [data-control="right"] .control-art { background-image: url('/ui/controls_right1.png'); background-position: -260px -228px; }
-  [data-control="jump"] .control-art { background-image: url('/ui/controls_jump1.png'); background-position: -232px -228px; }
-  [data-control="left"][data-held] .control-art { background-image: url('/ui/controls_left2.png'); }
-  [data-control="right"][data-held] .control-art { background-image: url('/ui/controls_right2.png'); }
-  [data-control="jump"][data-held] .control-art { background-image: url('/ui/controls_jump2.png'); }
+  [data-control="left"] .control-art { background-image: url('../../assets/ui/controls_left1.png'); background-position: -200px -228px; }
+  [data-control="right"] .control-art { background-image: url('../../assets/ui/controls_right1.png'); background-position: -260px -228px; }
+  [data-control="jump"] .control-art { background-image: url('../../assets/ui/controls_jump1.png'); background-position: -232px -228px; }
+  [data-control="left"][data-held] .control-art { background-image: url('../../assets/ui/controls_left2.png'); }
+  [data-control="right"][data-held] .control-art { background-image: url('../../assets/ui/controls_right2.png'); }
+  [data-control="jump"][data-held] .control-art { background-image: url('../../assets/ui/controls_jump2.png'); }
   .bottom {
     left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
     bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);

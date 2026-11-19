@@ -5,11 +5,11 @@ import { createRepeatingLayer, type RepeatingLayer } from './repeating-layer';
 import { Viewport, type ViewLayout } from './viewport';
 import { DogFollower } from './dog-follower';
 import { PartnerPlayback } from './partner-playback';
+import { backgroundArt, cursorArt } from './art';
 import { snapFollowerX } from './pixel-grid';
 // Characters, dog, mailbox and houses in one atlas, packed by scripts/pack_sprites.py.
-// Imported through Vite, so the image gets a content-hashed name and caches for good.
-import spritesImage from './sprites/sprites.png?url';
-import spritesData from './sprites/sprites.json';
+import spritesImage from '../../assets/sprites/sprites.png';
+import spritesData from '../../assets/sprites/sprites.json';
 
 const sides: Side[] = ['left', 'right'];
 const groundY = 12;
@@ -31,11 +31,11 @@ export class WorldView {
 
   preload(onLoadError: () => void): void {
     this.scene.load.atlas('sprites', spritesImage, spritesData);
-    for (const name of ['pointer', 'hover', 'grab']) {
-      this.scene.load.image(`cursor-${name}`, `/ui/hand_${name}.png`);
+    for (const [name, url] of Object.entries(cursorArt)) {
+      this.scene.load.image(`cursor-${name}`, url);
     }
-    for (const layer of ['Sky', 'Clouds', 'Bushes', 'Trees', 'Ground']) {
-      this.scene.load.image(layer, `/background/bg_Autumn/Layers/${layer}.png`);
+    for (const [layer, url] of Object.entries(backgroundArt)) {
+      this.scene.load.image(layer, url);
     }
     this.scene.load.on('loaderror', onLoadError);
   }
