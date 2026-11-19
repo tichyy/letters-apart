@@ -39,3 +39,17 @@ test('accelerating and turning remain precise within one rendered pixel', () => 
     }
   }
 });
+
+test('a still follower stays on one pixel while its anchor moves around it', () => {
+  // The dog sits; the player taps A/D and jumps around it. Its drawn position must
+  // not follow the player's rounding.
+  for (const zoom of [1, 2, 3]) {
+    const dogX = 1000.37;
+    const drawn = new Set();
+    for (let frame = 0; frame < 600; frame++) {
+      const ownerX = dogX + 40 + Math.sin(frame / 3) * 30 + frame % 7 * 0.13;
+      drawn.add(snapFollowerX(dogX, ownerX, zoom, true));
+    }
+    assert.deepEqual([...drawn], [Math.round(dogX * zoom) / zoom], `zoom ${zoom}`);
+  }
+});

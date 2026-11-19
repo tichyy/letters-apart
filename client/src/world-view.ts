@@ -21,6 +21,7 @@ export class WorldView {
   private mailboxes = new Map<Side, Phaser.GameObjects.Sprite>();
   private dog!: Phaser.GameObjects.Sprite;
   private dogFollower?: DogFollower;
+  private dogX?: number;
   private partner = new PartnerPlayback();
   private background!: Phaser.GameObjects.Image;
   private soil!: RepeatingLayer;
@@ -212,9 +213,12 @@ export class WorldView {
       this.dog.play(moving ? 'dog-run' : 'dog-idle', true);
     }
     const zoom = this.scene.cameras.main.zoom;
-    // Use the owner's rendered pixel grid. Rounding both world positions
-    // independently makes a steady following gap alternate by one screen pixel.
-    this.dog.setPosition(snapFollowerX(x, owner.x, zoom), Math.round((groundY + y + footOffset) * zoom) / zoom)
+    // Following: use the owner's rendered pixel grid, or a steady gap would alternate
+    // by one screen pixel. Still (e.g. sitting): use its own position, or the owner
+    // moving around it would shift it by one pixel back and forth.
+    const still = x === this.dogX;
+    this.dogX = x;
+    this.dog.setPosition(snapFollowerX(x, owner.x, zoom, still), Math.round((groundY + y + footOffset) * zoom) / zoom)
       .setFlipX(flipX).setAlpha(connected ? 1 : 0.35);
   }
 
