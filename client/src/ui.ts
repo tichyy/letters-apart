@@ -97,6 +97,11 @@ export class UI {
 
   get blocked(): boolean { return this.panel.open; }
 
+  /** The world is built: show it and its controls together. */
+  revealWorld(): void {
+    delete document.body.dataset.loading;
+  }
+
   onDialogChange(listener: () => void): () => void {
     this.events.addEventListener('dialogchange', listener);
     return () => this.events.removeEventListener('dialogchange', listener);

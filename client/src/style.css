@@ -20,6 +20,14 @@ body:active, body:has(:active) {
   cursor: var(--cursor-grab);
 }
 #game { position: fixed; inset: 0; touch-action: none; overflow: hidden; }
+/* The controls are HTML and would appear before the world: hold both back until
+   the scene is built, then show them together. */
+:is(#game, #interface, dialog, dialog::backdrop) { transition: opacity 200ms ease-out; }
+body[data-loading] :is(#game, #interface) { opacity: 0; }
+/* Modal dialogs render in the top layer, which ancestor opacity doesn't reach, so
+   hold them back directly; hidden also keeps them from being clicked or focused. */
+body[data-loading] :is(dialog, dialog::backdrop) { opacity: 0; visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { :is(#game, #interface, dialog, dialog::backdrop) { transition: none; } }
 canvas { display: block; image-rendering: pixelated; }
 #interface {
   position: fixed; left: var(--viewport-left, 0px); top: var(--viewport-top, 0px);

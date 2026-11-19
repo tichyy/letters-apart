@@ -44,6 +44,7 @@ export class WorldScene extends Phaser.Scene {
     const detachControls = this.controls.attach(() => this.stop(), () => { this.accumulator = 0; });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, detachControls);
     this.active = true;
+    this.ui.revealWorld();
   }
 
   receive(message: Message): void {
