@@ -15,7 +15,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
-OUTPUT = ROOT / "client" / "src" / "sprites"
+OUTPUT = ASSETS / "sprites"
 MAX_WIDTH = 512
 PADDING = 1
 

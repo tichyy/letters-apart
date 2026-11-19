@@ -2,11 +2,15 @@ import Phaser from 'phaser';
 import { Connection } from './connection';
 import { WorldScene, frameTiming } from './scene';
 import { UI } from './ui';
+import { faviconUrl, fontUrl } from './art';
 import type { Message, Side } from './protocol';
 import world from '../../world.json';
 import './style.css';
 
-const font = new FontFace('GameFont', 'url("/font.ttf")');
+// Imported like all art: an index.html link can't reach ../assets in development.
+document.head.append(Object.assign(document.createElement('link'), { rel: 'icon', type: 'image/png', href: faviconUrl }));
+
+const font = new FontFace('GameFont', `url("${fontUrl}")`);
 await font.load()
   .then(font => document.fonts.add(font))
   .catch(error => console.warn('Font failed to load', error));

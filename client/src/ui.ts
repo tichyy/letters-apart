@@ -1,6 +1,7 @@
 import type { Postcard, Side, Stamp, Crop } from './protocol';
 import { Connection, randomId } from './connection';
 import { PhotoEditor } from './photo-editor';
+import { postcardArt, stampArt } from './art';
 import world from '../../world.json';
 
 interface PendingWrite {
@@ -65,12 +66,6 @@ export class UI {
           </button>
         </div>
       </div>`;
-    if (matchMedia('(any-pointer: coarse)').matches) {
-      for (const action of ['left', 'right', 'jump']) {
-        const pressed = new Image();
-        pressed.src = `/ui/controls_${action}2.png`;
-      }
-    }
     this.gameplay = root.querySelector('#gameplay')!;
     this.hint = root.querySelector('#interact')!;
     this.galleryButton = root.querySelector('#gallery')!;
@@ -216,7 +211,7 @@ export class UI {
       sessionStorage.setItem('letters-draft', textarea.value);
       sessionStorage.setItem('letters-draft-title', title.value);
       if (selected) {
-        preview.style.backgroundImage = `url('/ui/stamp${selected.value}.png')`;
+        preview.style.backgroundImage = `url('${stampArt[Number(selected.value) as Stamp]}')`;
         preview.setAttribute('aria-label', `Stamp ${selected.value}`);
         preview.hidden = false;
         sessionStorage.setItem('letters-draft-stamp', selected.value);
@@ -393,7 +388,7 @@ export class UI {
       form.querySelector('textarea')!.value = card.body;
       this.fitPostcardText(form);
       const stamp = form.querySelector<HTMLElement>('.postcard-stamp')!;
-      stamp.style.backgroundImage = `url('/ui/stamp${card.stamp}.png')`;
+      stamp.style.backgroundImage = `url('${stampArt[card.stamp]}')`;
       stamp.setAttribute('aria-label', `Stamp ${card.stamp}`);
       previous.disabled = index === 0 && !pages?.previous;
       next.disabled = index === cards.length - 1 && !pages?.next;
@@ -433,7 +428,7 @@ export class UI {
     this.open(writing ? 'compose' : 'postcard', `
       <form class="postcard-editor" data-side="back">
         <div class="postcard-stage">
-          <img class="postcard-art" src="/ui/postcard1.png" alt="Postcard" draggable="false">
+          <img class="postcard-art" src="${postcardArt.back}" alt="Postcard" draggable="false">
           <div class="postcard-photo" role="group" aria-label="Postcard photo" hidden>
             <img alt="Photo on the front of the postcard" draggable="false" hidden>
           </div>
@@ -443,7 +438,7 @@ export class UI {
             <textarea class="postcard-message" name="message" aria-label="Postcard message"
               maxlength="1000" required ${writing ? 'placeholder="Write a little note..."' : 'readonly'}></textarea>
             <span class="postcard-stamp" role="img" aria-label="Stamp ${stamp}"
-              ${stamp ? `style="background-image: url('/ui/stamp${stamp}.png')"` : 'hidden'}></span>
+              ${stamp ? `style="background-image: url('${stampArt[stamp]}')"` : 'hidden'}></span>
           </div>
           <button type="button" class="postcard-turn" aria-label="Turn postcard over" aria-pressed="false"></button>
           ${writing ? `<button type="reset" class="postcard-reset" aria-label="Reset message side" title="Reset message side"></button>
@@ -454,7 +449,7 @@ export class UI {
         ${writing ? `<div class="postcard-stamps" role="group" aria-label="Choose a stamp">
           ${([1, 2, 3] as const).map(value => `<input type="radio" name="stamp" value="${value}"
             aria-label="Stamp ${value}" required ${value === stamp ? 'checked' : ''}
-            style="background-image: url('/ui/stamp${value}.png')">`).join('')}
+            style="background-image: url('${stampArt[value]}')">`).join('')}
         </div><p id="form-error" role="alert"></p>` : `<div class="postcard-navigation" aria-label="Mailbox navigation">
           <button type="button" class="postcard-previous" aria-label="Previous postcard" disabled></button>
           <button type="button" class="postcard-next" aria-label="Next postcard" disabled></button>
@@ -466,7 +461,7 @@ export class UI {
     turn.onclick = () => {
       const front = form.dataset.side !== 'front';
       form.dataset.side = front ? 'front' : 'back';
-      form.querySelector<HTMLImageElement>('.postcard-art')!.src = `/ui/postcard${front ? 2 : 1}.png`;
+      form.querySelector<HTMLImageElement>('.postcard-art')!.src = front ? postcardArt.front : postcardArt.back;
       form.querySelector<HTMLElement>('.postcard-back')!.hidden = front;
       form.querySelector<HTMLElement>('.postcard-photo')!.hidden = !front;
       form.querySelector<HTMLElement>('.postcard-photo-status')!.hidden = !front;
@@ -481,14 +476,6 @@ export class UI {
       if (!front) this.fitPostcardText(form);
       turn.setAttribute('aria-pressed', String(front));
     };
-    for (const name of [
-      'postcard2', 'button_rotate2', 'button_rotate3',
-      ...(writing ? ['button_send2', 'button_send3', 'button_reset2', 'button_reset3']
-        : ['button_left2', 'button_left3', 'button_right2', 'button_right3']),
-    ]) {
-      const image = new Image();
-      image.src = `/ui/${name}.png`;
-    }
     return form;
   }
 

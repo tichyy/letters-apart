@@ -16,7 +16,7 @@ spec = importlib.util.spec_from_file_location("pack_sprites", ROOT / "scripts/pa
 pack_sprites = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pack_sprites)
 
-ATLAS = ROOT / "client/src/sprites"
+ATLAS = ROOT / "assets/sprites"
 
 
 def same_pixels(a: Image.Image, b: Image.Image) -> bool:
