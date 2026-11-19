@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Connection } from './connection';
-import { WorldScene } from './scene';
+import { WorldScene, frameTiming } from './scene';
 import { UI } from './ui';
 import type { Message, Side } from './protocol';
 import world from '../../world.json';
@@ -24,7 +24,7 @@ new Phaser.Game({
   roundPixels: true,
   scale: { mode: Phaser.Scale.NONE, width: window.innerWidth, height: window.innerHeight },
   scene,
-  fps: { target: 60 },
+  fps: frameTiming,
   audio: { noAudio: true },
 });
 

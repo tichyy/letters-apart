@@ -4,6 +4,9 @@ export function randomId(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+// How long a photo request waits for the game connection to come back.
+const readyTimeout = 15000;
+
 export class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
@@ -16,6 +19,7 @@ export class Connection {
   private failures = 0;
   private lastResync = -Infinity;
   private lastMessage = 0;
+  private waiting: (() => void)[] = [];
   private readonly token: string;
 
   constructor(
@@ -30,6 +34,11 @@ export class Connection {
         this.connect(this.side);
       }
     }, 2000);
+    // Back from the background (e.g. the camera): if the socket went quiet, the server
+    // has likely dropped it, so reconnect now rather than waiting for the check above.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && this.side && Date.now() - this.lastMessage > 1000) this.connect(this.side);
+    });
   }
 
   connect(side: Side): void {
@@ -53,6 +62,7 @@ export class Connection {
       if (message.type === 'welcome') {
         this.ready = true;
         this.failures = 0;
+        for (const resume of this.waiting.splice(0)) resume();
         sessionStorage.setItem('letters-side', side);
       }
       if (message.type === 'occupied') {
@@ -112,8 +122,32 @@ export class Connection {
     await this.request(`/api/images/${id}`, { method: 'DELETE' });
   }
 
-  private async request(path: string, options: RequestInit = {}): Promise<Response> {
-    if (!this.ready || !this.side) throw new Error('Reconnect to the game to use photos.');
+  /** Resolves once the game connection is live, waiting for a reconnect if needed. */
+  private whenReady(signal?: AbortSignal | null): Promise<void> {
+    // An 'abort' listener never fires for a signal that is already aborted.
+    if (signal?.aborted) return Promise.reject(new DOMException('The request was aborted.', 'AbortError'));
+    if (this.ready) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
+        this.waiting = this.waiting.filter(waiter => waiter !== resume);
+        if (error) reject(error); else resolve();
+      };
+      const resume = () => finish();
+      const abort = () => finish(new DOMException('The request was aborted.', 'AbortError'));
+      const timer = setTimeout(() => finish(new Error('Reconnect to the game to use photos.')), readyTimeout);
+      signal?.addEventListener('abort', abort, { once: true });
+      this.waiting.push(resume);
+    });
+  }
+
+  private async request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
+    if (!this.side) throw new Error('Reconnect to the game to use photos.');
+    // Choosing a photo can open the camera and background the page; the connection
+    // may still be coming back when the photo arrives.
+    await this.whenReady(options.signal);
+    if (!this.side) throw new Error('Reconnect to the game to use photos.');
     const headers = new Headers(options.headers);
     headers.set('Authorization', `Bearer ${this.token}`);
     headers.set('X-Player-Side', this.side);
@@ -123,6 +157,12 @@ export class Connection {
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') throw error;
       throw new Error('Connection interrupted. Please try the photo again.');
+    }
+    if (response.status === 401 && retry && this.side) {
+      // The server ended this tab's session while the page was away. Reconnect and
+      // try once more; uploads carry an ID, so a retry can't save the photo twice.
+      this.connect(this.side);
+      return this.request(path, options, false);
     }
     if (!response.ok) {
       const body = await response.json().catch(() => null);
