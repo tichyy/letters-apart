@@ -288,6 +288,20 @@ def test_large_and_animated_images():
         normalize(photo_bytes()[:40])
 
 
+def test_iphone_multi_picture_jpeg_uses_its_main_photo():
+    # iPhones save depth or portrait data as a second image in the same JPEG (MPO).
+    photo = io.BytesIO()
+    Image.new("RGB", (300, 200), "red").save(
+        photo,
+        format="MPO",
+        save_all=True,
+        append_images=[Image.new("RGB", (60, 40), "blue")],
+    )
+    data, width, height = normalize(photo.getvalue())
+    assert (width, height) == (300, 200)
+    assert Image.open(io.BytesIO(data)).getpixel((150, 100))[0] > 200
+
+
 def test_stream_limit_capacity_and_storage_failure(session, monkeypatch):
     app, client, _, _ = session
     monkeypatch.setattr("server.image_routes.MAX_UPLOAD", 100)
