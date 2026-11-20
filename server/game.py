@@ -458,6 +458,13 @@ class Game:
             self.refresh_mail()
             return acknowledgement
 
+        if kind == "drop":
+            if not self.mail[side]["carrying"]:
+                return None
+            self.store.drop(side)
+            self.refresh_mail()
+            return {"type": "dropped"}
+
         if kind == "interact":
             if self.nearby(side, WORLD["desks"][side]):
                 if self.mail[side]["carrying"]:

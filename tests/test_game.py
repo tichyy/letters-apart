@@ -67,6 +67,21 @@ def test_writing_requires_own_desk_and_one_carried_card(game):
     assert game.store.db.execute("SELECT COUNT(*) FROM postcards").fetchone()[0] == 1
 
 
+def test_drop_discards_the_carried_card_and_releases_its_photo(game):
+    assert game.handle("left", {"type": "drop"}) is None
+    write(game, "left")
+    game.store.add_image("a" * 32, "left", "owner", 10, 10, 100)
+    game.store.db.execute("UPDATE postcards SET image_id = ?", ("a" * 32,))
+    game.players["left"].x = WORLD["mailboxes"]["right"]
+    assert game.handle("left", {"type": "drop"}) == {"type": "dropped"}
+    assert not game.mail["left"]["carrying"]
+    assert game.store.db.execute("SELECT COUNT(*) FROM postcards").fetchone()[0] == 0
+    assert game.store.expired_images() == ["a" * 32]
+    assert deliver(game, "left") is None
+    assert game.mail["right"]["unread"] == 0
+    assert write(game, "left") == {"type": "written"}
+
+
 @pytest.mark.parametrize("stamp", [1, 2, 3])
 def test_selected_stamp_survives_delivery_and_restart(game, tmp_path, stamp):
     game.handle("left", {"type": "write", "body": "See you soon.", "stamp": stamp})

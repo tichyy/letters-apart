@@ -33,7 +33,7 @@ function client() {
     send(message) { sent.push(structuredClone(message)); return true; },
     connect() { this.reconnects++; this.ready = false; },
   };
-  const scene = new WorldScene(connection, { setHint() {}, setGalleryAvailable() {} });
+  const scene = new WorldScene(connection, { setHint() {}, setGalleryAvailable() {}, setDropAvailable() {} });
   scene.active = true;
   scene.view.renderPlayers = (_players, _side, motion) => { scene.drawn = motion; };
   scene.view.followPlayer = () => {};

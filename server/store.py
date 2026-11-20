@@ -161,6 +161,19 @@ class Store:
                 (side,),
             )
 
+    def drop(self, side: str) -> None:
+        """Discard the carried postcard and let photo cleanup remove its image."""
+        with self.db:
+            self.db.execute(
+                """UPDATE images SET expires_at = 0 WHERE id = (
+                   SELECT image_id FROM postcards WHERE sender = ? AND delivered_at IS NULL)""",
+                (side,),
+            )
+            self.db.execute(
+                "DELETE FROM postcards WHERE sender = ? AND delivered_at IS NULL",
+                (side,),
+            )
+
     def inbox(
         self, side: str, *, include_read: bool = False, limit: int = -1, offset: int = 0
     ) -> list[dict]:

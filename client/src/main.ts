@@ -43,6 +43,7 @@ function receive(message: Message): void {
     case 'welcome': ui.connected(message.side); break;
     case 'compose': ui.compose(); break;
     case 'written': ui.written(message.requestId); break;
+    case 'dropped': ui.toast('Postcard dropped. Your bag is empty again.'); break;
     case 'mailbox': ui.read(message.postcards); break;
     case 'gallery': ui.gallery(message.postcards, message.page, message.hasMore); break;
     case 'occupied': ui.chooseHome(true); break;
