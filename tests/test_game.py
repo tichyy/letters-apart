@@ -75,11 +75,41 @@ def test_drop_discards_the_carried_card_and_releases_its_photo(game):
     game.players["left"].x = WORLD["mailboxes"]["right"]
     assert game.handle("left", {"type": "drop"}) == {"type": "dropped"}
     assert not game.mail["left"]["carrying"]
-    assert game.store.db.execute("SELECT COUNT(*) FROM postcards").fetchone()[0] == 0
     assert game.store.expired_images() == ["a" * 32]
+    # The card no longer holds the photo, so cleanup can remove its record.
+    game.store.forget_image("a" * 32)
     assert deliver(game, "left") is None
     assert game.mail["right"]["unread"] == 0
     assert write(game, "left") == {"type": "written"}
+
+
+def test_replaying_a_dropped_cards_write_does_not_bring_it_back(game):
+    token = "t" * 32
+    message = {"type": "write", "body": "Hello", "requestId": "d" * 32}
+    game.players["left"].x = WORLD["desks"]["left"]
+    assert game.handle("left", message, token) == {"type": "written", "requestId": "d" * 32}
+    game.handle("left", {"type": "drop"})
+    # A stale client reconnects and retries the write it never saw acknowledged.
+    assert game.handle("left", message, token) == {"type": "written", "requestId": "d" * 32}
+    assert not game.mail["left"]["carrying"]
+    assert Game(game.store).mail["left"]["carrying"] is False
+
+
+def test_schema_1_database_lets_a_player_write_again_after_dropping(tmp_path):
+    path = tmp_path / "cards.sqlite3"
+    Store(path).close()
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("DROP INDEX one_carried_postcard")
+        db.execute("""CREATE UNIQUE INDEX one_carried_postcard
+                      ON postcards(sender) WHERE delivered_at IS NULL""")
+        db.execute("PRAGMA user_version = 1")
+        db.commit()
+    with closing(Store(path)) as store:
+        game = Game(store)
+        write(game, "left")
+        game.handle("left", {"type": "drop"})
+        assert write(game, "left") == {"type": "written"}
+        assert game.mail["left"]["carrying"]
 
 
 @pytest.mark.parametrize("stamp", [1, 2, 3])
@@ -631,4 +661,4 @@ def test_database_uses_wal_and_records_its_schema_version(tmp_path):
     Store(path).close()
     with closing(sqlite3.connect(path)) as db:
         assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
