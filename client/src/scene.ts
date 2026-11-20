@@ -158,6 +158,7 @@ export class WorldScene extends Phaser.Scene {
     else if (this.nearby(world.mailboxes[other]) && own.carrying) hint = 'E · Deliver your postcard';
     this.ui.setHint(this.ui.blocked ? '' : hint);
     this.ui.setGalleryAvailable(!this.ui.blocked && this.nearby(world.desks[side]));
+    this.ui.setDropAvailable(!this.ui.blocked && own.carrying);
   }
 
   useMailbox(side: Side): void {

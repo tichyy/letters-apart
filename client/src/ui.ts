@@ -21,6 +21,8 @@ export class UI {
   private panel = document.createElement('dialog');
   private hint: HTMLButtonElement;
   private galleryButton: HTMLButtonElement;
+  private dropButton: HTMLButtonElement;
+  private dropTimer?: number;
   private notice: HTMLElement;
   private toastTimer?: number;
   private toastAnimation?: Animation;
@@ -51,6 +53,7 @@ export class UI {
         <div class="bottom">
           <button id="interact" class="interaction" hidden></button>
           <button id="gallery" class="interaction" hidden>Received postcards</button>
+          <button id="drop" class="interaction" hidden></button>
         </div>
         <div class="touch-controls" aria-label="Movement controls">
           <div class="movement-controls">
@@ -69,11 +72,19 @@ export class UI {
     this.gameplay = root.querySelector('#gameplay')!;
     this.hint = root.querySelector('#interact')!;
     this.galleryButton = root.querySelector('#gallery')!;
+    this.dropButton = root.querySelector('#drop')!;
     this.notice = root.querySelector('#notice')!;
     root.append(this.panel);
     this.hint.onclick = () => this.interact();
     this.galleryButton.textContent = matchMedia('(any-pointer: coarse)').matches ? 'Received postcards' : 'F · Received postcards';
     this.galleryButton.onclick = () => this.openLibrary();
+    this.dropButton.textContent = matchMedia('(any-pointer: coarse)').matches ? 'Hold to drop postcard' : 'Hold Q · Drop postcard';
+    this.dropButton.addEventListener('pointerdown', event => {
+      if (event.button === 0) this.holdDrop(true);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave'] as const) {
+      this.dropButton.addEventListener(type, () => this.holdDrop(false));
+    }
     this.panel.addEventListener('close', () => {
       if (this.panel.open) return;
       this.caretCleanup?.();
@@ -119,6 +130,12 @@ export class UI {
 
   setGalleryAvailable(available: boolean): void { this.galleryButton.hidden = !available; }
 
+  setDropAvailable(available: boolean): void {
+    if (available === !this.dropButton.hidden) return;
+    this.dropButton.hidden = !available;
+    if (!available) this.holdDrop(false);
+  }
+
   get noticeAnchor(): { x: number; y: number } | undefined {
     return this.notice.textContent ? this.noticeWorldPosition : undefined;
   }
@@ -145,6 +162,18 @@ export class UI {
 
   interact(): void {
     if (!this.blocked) this.requestInteraction();
+  }
+
+  /** Dropping discards the card, so it takes a deliberate one-second hold. */
+  holdDrop(held: boolean): void {
+    clearTimeout(this.dropTimer);
+    const holding = held && !this.blocked && !this.dropButton.hidden;
+    this.dropButton.toggleAttribute('data-holding', holding);
+    if (!holding) return;
+    this.dropTimer = window.setTimeout(() => {
+      this.dropButton.removeAttribute('data-holding');
+      this.send({ type: 'drop' });
+    }, 1000);
   }
 
   toast(text: string, anchor?: { x: number; y: number }): void {

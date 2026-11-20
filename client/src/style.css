@@ -56,6 +56,13 @@ button:disabled { opacity: 0.6; cursor: var(--cursor-pointer); }
   display: flex; flex-wrap: wrap; justify-content: center; gap: 12px;
 }
 .interaction { text-shadow: 2px 2px 0 #132d32; }
+/* The bar fills while the drop is held and empties at once when it is let go. */
+#drop { position: relative; touch-action: none; -webkit-tap-highlight-color: transparent; }
+#drop::after {
+  content: ''; position: absolute; left: 12px; bottom: 0; width: 0; height: 4px;
+  background: currentColor; box-shadow: 2px 2px 0 #132d32;
+}
+#drop[data-holding]::after { width: calc(100% - 24px); transition: width 1s linear; }
 .touch-controls { display: none; }
 
 dialog {

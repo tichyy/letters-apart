@@ -5,6 +5,9 @@ import sqlite3
 import time
 from pathlib import Path
 
+# The card a player has written but not yet delivered or dropped.
+CARRIED = "sender = ? AND delivered_at IS NULL AND deleted_at IS NULL"
+
 
 class Store:
     def __init__(self, path: Path):
@@ -23,6 +26,13 @@ class Store:
         if version < 1:
             self._migrate_to_v1()
             self.db.execute("PRAGMA user_version = 1")
+        if version < 2:
+            # A dropped card keeps its row as the write's retry record, so it must
+            # no longer count as the one card a player carries.
+            self.db.execute("DROP INDEX one_carried_postcard")
+            self.db.execute("""CREATE UNIQUE INDEX one_carried_postcard ON postcards(sender)
+                               WHERE delivered_at IS NULL AND deleted_at IS NULL""")
+            self.db.execute("PRAGMA user_version = 2")
         self.db.commit()
 
     def _migrate_to_v1(self) -> None:
@@ -87,7 +97,7 @@ class Store:
 
     def summary(self, side: str) -> dict:
         carrying = self.db.execute(
-            "SELECT 1 FROM postcards WHERE sender = ? AND delivered_at IS NULL",
+            f"SELECT 1 FROM postcards WHERE {CARRIED}",
             (side,),
         ).fetchone()
         unread = self.db.execute(
@@ -156,8 +166,24 @@ class Store:
     def deliver(self, side: str) -> None:
         with self.db:
             self.db.execute(
-                """UPDATE postcards SET delivered_at = CURRENT_TIMESTAMP
-                   WHERE sender = ? AND delivered_at IS NULL""",
+                f"UPDATE postcards SET delivered_at = CURRENT_TIMESTAMP WHERE {CARRIED}",
+                (side,),
+            )
+
+    def drop(self, side: str) -> None:
+        """Discard the carried postcard and let photo cleanup remove its image.
+
+        The row stays, marked deleted, so a replay of its write is still recognized
+        as completed instead of writing the card again."""
+        with self.db:
+            self.db.execute(
+                f"""UPDATE images SET expires_at = 0 WHERE id = (
+                   SELECT image_id FROM postcards WHERE {CARRIED})""",
+                (side,),
+            )
+            self.db.execute(
+                f"""UPDATE postcards SET deleted_at = CURRENT_TIMESTAMP, image_id = NULL
+                   WHERE {CARRIED}""",
                 (side,),
             )
 

@@ -46,6 +46,7 @@ export type Message =
   | { type: 'state'; players: Player[] }
   | { type: 'compose' }
   | { type: 'written'; requestId?: string }
+  | { type: 'dropped' }
   | { type: 'mailbox'; postcards: Postcard[] }
   | { type: 'gallery'; postcards: Postcard[]; page: number; hasMore: boolean }
   | { type: 'mailbox_used'; side: Side }

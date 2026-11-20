@@ -1,11 +1,11 @@
 const jumpKeys = ['Space', 'ArrowUp', 'KeyW'];
-const gameKeys = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', 'KeyF', ...jumpKeys];
+const gameKeys = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', 'KeyF', 'KeyQ', ...jumpKeys];
 
 export class KeyboardControls {
   private keys = new Set<string>();
   private jumpRequested = false;
 
-  constructor(private blocked: () => boolean, private interact: () => void, private openLibrary: () => void) {}
+  constructor(private blocked: () => boolean, private interact: () => void, private openLibrary: () => void, private holdDrop: (held: boolean) => void) {}
 
   attach(): () => void {
     const controller = new AbortController();
@@ -18,8 +18,14 @@ export class KeyboardControls {
       if (jumpKeys.includes(event.code) && !event.repeat) this.jumpRequested = true;
       if (event.code === 'KeyE' && !event.repeat) this.interact();
       if (event.code === 'KeyF' && !event.repeat) this.openLibrary();
+      if (event.code === 'KeyQ' && !event.repeat) this.holdDrop(true);
     }, options);
-    window.addEventListener('keyup', event => this.keys.delete(event.code), options);
+    window.addEventListener('keyup', event => {
+      this.keys.delete(event.code);
+      if (event.code === 'KeyQ') this.holdDrop(false);
+    }, options);
+    // A key released in another window sends no keyup here.
+    window.addEventListener('blur', () => this.holdDrop(false), options);
     return () => {
       controller.abort();
       this.release();
@@ -36,6 +42,7 @@ export class KeyboardControls {
   }
 
   release(): void {
+    this.holdDrop(false);
     this.keys.clear();
     this.jumpRequested = false;
   }
