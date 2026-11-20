@@ -10,6 +10,10 @@ import './style.css';
 // Imported like all art: an index.html link can't reach ../assets in development.
 document.head.append(Object.assign(document.createElement('link'), { rel: 'icon', type: 'image/png', href: faviconUrl }));
 
+// iOS Safari ignores the viewport's user-scalable=no for pinches, so stop its
+// pinch gesture here: once zoomed in a dialog, the game itself cannot zoom out.
+document.addEventListener('gesturestart', event => event.preventDefault());
+
 // Font and interface art are ready before anything is shown, so no screen fills in
 // piece by piece the first time it opens.
 const font = new FontFace('GameFont', `url("${fontUrl}")`);
