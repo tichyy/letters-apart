@@ -37,7 +37,9 @@ def normalize(data: bytes) -> tuple[bytes, int, int]:
         ) as source:
             if source.width * source.height > Image.MAX_IMAGE_PIXELS:
                 raise ValueError("Choose a photo smaller than 60 megapixels.")
-            if source.format != "HEIF" and getattr(source, "n_frames", 1) != 1:
+            # HEIC and MPO (iPhone JPEGs with depth or portrait data) hold several
+            # images, but the first is the photo itself. Other formats animate.
+            if source.format not in ("HEIF", "MPO") and getattr(source, "n_frames", 1) != 1:
                 raise ValueError("Choose a still photo rather than an animation.")
             # JPEG decoders can downsample during decoding, avoiding a full camera-size raster.
             source.draft("RGB", (1600, 1600))

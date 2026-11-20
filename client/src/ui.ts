@@ -491,6 +491,7 @@ export class UI {
       </form>`);
     const form = this.panel.querySelector('form')!;
     form.querySelector('textarea')!.value = body;
+    if (!writing) this.readLarger(form);
     const turn = form.querySelector<HTMLButtonElement>('.postcard-turn')!;
     turn.onclick = () => {
       const front = form.dataset.side !== 'front';
@@ -566,6 +567,46 @@ export class UI {
     resize.observe(form);
     this.caretCleanup = () => { events.abort(); resize.disconnect(); };
     update();
+  }
+
+  /**
+   * Page zoom is blocked (a zoomed dialog left the game stuck zoomed in), and the
+   * card's text shrinks to fit a small area. Tapping it shows it in large type.
+   */
+  private readLarger(form: HTMLFormElement): void {
+    const title = form.querySelector<HTMLInputElement>('.postcard-title')!;
+    const message = form.querySelector('textarea')!;
+    const reader = document.createElement('div');
+    reader.className = 'postcard-reader';
+    reader.tabIndex = -1;
+    reader.hidden = true;
+    const heading = document.createElement('h2');
+    const body = document.createElement('p');
+    reader.append(heading, body);
+    form.append(reader);
+    const open = () => {
+      heading.textContent = title.value;
+      heading.hidden = !title.value;
+      body.textContent = message.value;
+      reader.hidden = false;
+      reader.scrollTop = 0;
+      reader.focus();
+    };
+    const close = () => { reader.hidden = true; };
+    for (const field of [title, message] as HTMLElement[]) {
+      field.title = 'Read larger';
+      field.addEventListener('click', open);
+      field.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { event.preventDefault(); open(); }
+      });
+    }
+    reader.addEventListener('click', close);
+    // Escape closes the large text first, then the postcard.
+    const cancel = (event: Event) => {
+      if (!reader.isConnected) this.panel.removeEventListener('cancel', cancel);
+      else if (!reader.hidden) { event.preventDefault(); close(); }
+    };
+    this.panel.addEventListener('cancel', cancel);
   }
 
   private textOverflows(field: HTMLInputElement | HTMLTextAreaElement): boolean {
