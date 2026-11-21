@@ -113,22 +113,24 @@ export class UI {
     const loader = document.getElementById('loader');
     const show = () => { delete document.body.dataset.loading; };
     if (!loader) { show(); return; }
-    // The dog greets every visit, even a cached one: let it run a few strides
-    // first, and leap at the end of a stride so the frames join up.
+    // The dog greets every visit, even a cached one. Its toy is thrown in, and two
+    // strides later the dog leaps to catch it (index.html times the flight). The
+    // leap comes at least three strides after the dog starts running, and always at
+    // the end of a stride so the run and jump frames join up.
     const run = loader.querySelector('.dog')?.getAnimations()[0];
-    const cycle = Number(run?.effect?.getTiming().duration) || 0;
+    const stride = Number(run?.effect?.getTiming().duration) || 0;
     const played = Number(run?.currentTime) || 0;
-    const strides = 3;
-    const wait = cycle ? Math.max(strides * cycle - played, (cycle - played % cycle) % cycle) : 0;
+    const lead = 2 * stride;
+    const leap = stride ? Math.ceil(Math.max(3 * stride, played + lead) / stride - 1e-6) * stride : 0;
     setTimeout(() => {
-      // The dog leaps, and the world fades in under it as it reaches the top.
       loader.dataset.leaving = '';
       loader.addEventListener('animationend', event => {
         if (event.target === loader) loader.remove();
       });
-      if (cycle) setTimeout(show, 125);
+      // The world fades in as the dog nears the top of its leap.
+      if (stride) setTimeout(show, lead + 125);
       else show();
-    }, wait);
+    }, Math.max(0, leap - lead - played));
   }
 
   onDialogChange(listener: () => void): () => void {
