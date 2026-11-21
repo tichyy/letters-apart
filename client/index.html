@@ -6,10 +6,122 @@
     <meta name="theme-color" content="#143f5b" />
     <meta name="description" content="A small place to meet, and a postcard to carry home." />
     <title>Letters Apart</title>
+    <!-- loader-art -->
+    <!-- Inline, not in style.css: the loader must be styled before any script runs. -->
+    <style>
+      html { background: #143f5b; }
+      #loader {
+        position: fixed; inset: 0; z-index: 1; display: grid; place-items: center;
+        background: #143f5b; pointer-events: none;
+      }
+      /* Everything is drawn at 4× in a 128 px box centred on the screen. */
+      #loader .stage { position: relative; width: 128px; height: 128px; }
+      #loader .hop { position: absolute; inset: 0; }
+      /* A pixel shadow under the dog's feet. */
+      #loader .hop::after {
+        content: ''; position: absolute; left: 36px; right: 36px; bottom: 0; height: 8px;
+        background: #0e2e43;
+      }
+      #loader :is(.dog, .held, .spin) {
+        position: absolute; width: 128px; height: 128px;
+        background: center / contain no-repeat; image-rendering: pixelated;
+      }
+      #loader .dog { z-index: 1; background-image: var(--dog-run-1); animation: dog-run 333ms step-end infinite; }
+      /* The thrown toy's art is centred at (24, 64) of its frame: this offset puts that
+         centre on the box's origin, so each throw translate is where the toy is. */
+      #loader .throw { position: absolute; left: -24px; top: -64px; z-index: 2; width: 128px; height: 128px; visibility: hidden; }
+      /* The caught toy has a frame for each jump frame from 4 to 7, drawn on the
+         dog's own canvas, so it needs no offset. */
+      #loader .held { z-index: 2; opacity: 0; background-image: var(--toy-held-1); }
+
+      /* Leaving. The toy is thrown in from off the left edge of the screen and flies
+         over the dog for 916 ms. Two strides (666 ms) after the throw the dog leaps,
+         and 250 ms into the leap, at the top (jump frame 4), the toy reaches its mouth.
+         Everything stays solid until the catch, then the world fades in around it.
+         ui.ts starts this so the leap is on a stride. */
+      #loader[data-leaving] { animation: loader-out 300ms ease-in 916ms forwards; }
+      #loader[data-leaving] .throw {
+        visibility: visible;
+        animation: throw-x 916ms linear forwards, caught 1ms step-start 916.1ms forwards;
+      }
+      #loader[data-leaving] .spin { animation: throw-y 916ms forwards, toy-spin 611ms step-end infinite; }
+      #loader[data-leaving] .hop { animation: hop 583ms cubic-bezier(.3, .6, .5, 1) 666ms forwards; }
+      #loader[data-leaving] .hop::after { animation: shadow 583ms ease-out 666ms forwards; }
+      /* The stride keeps going until the leap: the throw starts on a stride. */
+      #loader[data-leaving] .dog { animation: dog-run 333ms step-end infinite, dog-jump 583ms step-end 666ms forwards; }
+      #loader[data-leaving] .held { animation: held 583ms step-end 666ms forwards; }
+
+      @keyframes loader-out { to { opacity: 0; } }
+      /* A real throw: steady speed across, while gravity slows the rise and speeds
+         the fall (quadratic easing on each half of the arc). It peaks at 53.3% of
+         the flight, 90 px above the dog, and lands where the held toy appears, (110, 11). */
+      @keyframes throw-x { from { transform: translateX(-50vw); } to { transform: translateX(110px); } }
+      @keyframes throw-y {
+        0% { transform: translateY(40px); animation-timing-function: cubic-bezier(.33, .67, .67, 1); }
+        53.3% { transform: translateY(-90px); animation-timing-function: cubic-bezier(.33, 0, .67, .33); }
+        100% { transform: translateY(11px); }
+      }
+      /* The thrown toy hands over to the one in the dog's mouth, which shows from
+         666 + 42.9% of 583 = 916.07 ms. */
+      @keyframes caught { to { visibility: hidden; } }
+      @keyframes toy-spin {
+        0% { background-image: var(--toy-1); }
+        12.5% { background-image: var(--toy-2); }
+        25% { background-image: var(--toy-3); }
+        37.5% { background-image: var(--toy-4); }
+        50% { background-image: var(--toy-5); }
+        62.5% { background-image: var(--toy-6); }
+        75% { background-image: var(--toy-7); }
+        87.5% { background-image: var(--toy-8); }
+        100% { background-image: var(--toy-1); }
+      }
+      /* In the mouth from jump frame 4 to 7: toy_held1 to toy_held4, in step with
+         dog-jump. */
+      @keyframes held {
+        0% { opacity: 0; background-image: var(--toy-held-1); }
+        42.9% { opacity: 1; background-image: var(--toy-held-1); }
+        57.1% { opacity: 1; background-image: var(--toy-held-2); }
+        71.4% { opacity: 1; background-image: var(--toy-held-3); }
+        85.7%, 100% { opacity: 1; background-image: var(--toy-held-4); }
+      }
+      @keyframes hop { 50% { transform: translateY(-24px); } }
+      @keyframes shadow { 50% { transform: scaleX(0.5); opacity: 0.5; } }
+      @keyframes dog-run {
+        0% { background-image: var(--dog-run-1); }
+        25% { background-image: var(--dog-run-2); }
+        50% { background-image: var(--dog-run-3); }
+        75% { background-image: var(--dog-run-4); }
+        100% { background-image: var(--dog-run-1); }
+      }
+      @keyframes dog-jump {
+        0% { background-image: var(--dog-jump-1); }
+        14.3% { background-image: var(--dog-jump-2); }
+        28.6% { background-image: var(--dog-jump-3); }
+        42.9% { background-image: var(--dog-jump-4); }
+        57.1% { background-image: var(--dog-jump-5); }
+        71.4% { background-image: var(--dog-jump-6); }
+        85.7%, 100% { background-image: var(--dog-jump-7); }
+      }
+      /* Reduced motion: a resting dog with its toy on the ground, fading away. */
+      @media (prefers-reduced-motion: reduce) {
+        #loader .dog { background-image: var(--dog-idle-1); }
+        #loader .held { opacity: 1; background-image: var(--toy-held-2); transform: translate(28px, 64px); }
+        #loader .dog, #loader[data-leaving] :is(.hop, .dog, .held, .throw, .spin),
+        #loader[data-leaving] .hop::after { animation: none; }
+        #loader[data-leaving] .throw { visibility: hidden; }
+        #loader[data-leaving] { animation-delay: 0ms; }
+      }
+    </style>
   </head>
   <body data-loading>
     <main id="game" aria-label="Letters Apart game"></main>
     <div id="interface"></div>
+    <div id="loader" role="status" aria-label="Loading">
+      <div class="stage">
+        <div class="hop"><div class="dog"></div><div class="held"></div></div>
+        <div class="throw"><div class="spin"></div></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
