@@ -127,8 +127,8 @@ export class UI {
       loader.addEventListener('animationend', event => {
         if (event.target === loader) loader.remove();
       });
-      // The world fades in as the dog nears the top of its leap.
-      if (stride) setTimeout(show, lead + 125);
+      // The world fades in once the dog has caught its toy, at the top of its leap.
+      if (stride) setTimeout(show, lead + 250);
       else show();
     }, Math.max(0, leap - lead - played));
   }
