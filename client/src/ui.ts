@@ -110,7 +110,25 @@ export class UI {
 
   /** The world is built: show it and its controls together. */
   revealWorld(): void {
-    delete document.body.dataset.loading;
+    const loader = document.getElementById('loader');
+    const show = () => { delete document.body.dataset.loading; };
+    if (!loader) { show(); return; }
+    // The dog greets every visit, even a cached one: let it run a few strides
+    // first, and leap at the end of a stride so the frames join up.
+    const run = loader.querySelector('.dog')?.getAnimations()[0];
+    const cycle = Number(run?.effect?.getTiming().duration) || 0;
+    const played = Number(run?.currentTime) || 0;
+    const strides = 3;
+    const wait = cycle ? Math.max(strides * cycle - played, (cycle - played % cycle) % cycle) : 0;
+    setTimeout(() => {
+      // The dog leaps, and the world fades in under it as it reaches the top.
+      loader.dataset.leaving = '';
+      loader.addEventListener('animationend', event => {
+        if (event.target === loader) loader.remove();
+      });
+      if (cycle) setTimeout(show, 125);
+      else show();
+    }, wait);
   }
 
   onDialogChange(listener: () => void): () => void {

@@ -6,10 +6,62 @@
     <meta name="theme-color" content="#143f5b" />
     <meta name="description" content="A small place to meet, and a postcard to carry home." />
     <title>Letters Apart</title>
+    <!-- loader-art -->
+    <!-- Inline, not in style.css: the loader must be styled before any script runs. -->
+    <style>
+      html { background: #143f5b; }
+      #loader {
+        position: fixed; inset: 0; z-index: 1; display: grid; place-items: center;
+        background: #143f5b; pointer-events: none;
+      }
+      #loader .hop { position: relative; width: 128px; height: 128px; }
+      /* A pixel shadow under the dog's feet. */
+      #loader .hop::after {
+        content: ''; position: absolute; left: 36px; right: 36px; bottom: 0; height: 8px;
+        background: #0e2e43;
+      }
+      #loader .dog {
+        position: relative; z-index: 1; width: 100%; height: 100%;
+        background: var(--dog-run-1) center / contain no-repeat; image-rendering: pixelated;
+        animation: dog-run 333ms step-end infinite;
+      }
+      /* Leaving: the dog jumps on the spot as the world fades in around it. */
+      #loader[data-leaving] { animation: loader-out 325ms ease-in 175ms forwards; }
+      #loader[data-leaving] .hop { animation: hop 583ms cubic-bezier(.3, .6, .5, 1) forwards; }
+      #loader[data-leaving] .hop::after { animation: shadow 583ms ease-out forwards; }
+      #loader[data-leaving] .dog { animation: dog-jump 583ms step-end forwards; }
+
+      @keyframes loader-out { to { opacity: 0; } }
+      @keyframes hop { 50% { transform: translateY(-24px); } }
+      @keyframes shadow { 50% { transform: scaleX(0.5); opacity: 0.5; } }
+      @keyframes dog-run {
+        0% { background-image: var(--dog-run-1); }
+        25% { background-image: var(--dog-run-2); }
+        50% { background-image: var(--dog-run-3); }
+        75% { background-image: var(--dog-run-4); }
+        100% { background-image: var(--dog-run-1); }
+      }
+      @keyframes dog-jump {
+        0% { background-image: var(--dog-jump-1); }
+        14.3% { background-image: var(--dog-jump-2); }
+        28.6% { background-image: var(--dog-jump-3); }
+        42.9% { background-image: var(--dog-jump-4); }
+        57.1% { background-image: var(--dog-jump-5); }
+        71.4% { background-image: var(--dog-jump-6); }
+        85.7%, 100% { background-image: var(--dog-jump-7); }
+      }
+      /* Reduced motion: a resting dog that simply fades away. */
+      @media (prefers-reduced-motion: reduce) {
+        #loader .dog { background-image: var(--dog-idle-1); }
+        #loader .dog, #loader[data-leaving] :is(.hop, .dog), #loader[data-leaving] .hop::after { animation: none; }
+        #loader[data-leaving] { animation-delay: 0ms; }
+      }
+    </style>
   </head>
   <body data-loading>
     <main id="game" aria-label="Letters Apart game"></main>
     <div id="interface"></div>
+    <div id="loader" role="status" aria-label="Loading"><div class="hop"><div class="dog"></div></div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
