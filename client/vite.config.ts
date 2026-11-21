@@ -15,6 +15,7 @@ function loaderArt(): Plugin {
     ...range(4).map(i => [`dog-run-${i}`, `dog_run_${i}`]),
     ...range(7).map(i => [`dog-jump-${i}`, `dog_jump_${i}`]),
     ...range(8).map(i => [`toy-${i}`, `toy${i}`]),
+    ['toy-held', 'toy_held'],
   ];
   return {
     name: 'loader-art',

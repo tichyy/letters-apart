@@ -27,11 +27,11 @@
         background: center / contain no-repeat; image-rendering: pixelated;
       }
       #loader .dog { z-index: 1; background-image: var(--dog-run-1); animation: dog-run 333ms step-end infinite; }
-      /* The toy's art is centred at (24, 64) of its frame: these offsets put that
-         centre on the box's origin, so each translate below is where the toy is. */
-      #loader :is(.held, .throw) { left: -24px; top: -64px; }
-      #loader .throw { position: absolute; z-index: 2; width: 128px; height: 128px; visibility: hidden; }
-      #loader .held { z-index: 2; opacity: 0; background-image: var(--toy-6); }
+      /* The thrown toy's art is centred at (24, 64) of its frame: this offset puts that
+         centre on the box's origin, so each throw translate is where the toy is. */
+      #loader .throw { position: absolute; left: -24px; top: -64px; z-index: 2; width: 128px; height: 128px; visibility: hidden; }
+      /* The caught toy shares the dog's canvas, drawn in its mouth for jump frame 5. */
+      #loader .held { z-index: 2; opacity: 0; background-image: var(--toy-held); }
 
       /* Leaving. The toy is thrown in from off the left edge of the screen and flies
          over the dog for 916 ms. Two strides (666 ms) after the throw the dog leaps,
@@ -40,7 +40,7 @@
       #loader[data-leaving] { animation: loader-out 325ms ease-in 841ms forwards; }
       #loader[data-leaving] .throw {
         visibility: visible;
-        animation: throw-x 916ms linear forwards, caught 1ms step-end 940ms forwards;
+        animation: throw-x 916ms linear forwards, caught 1ms step-start 916.1ms forwards;
       }
       #loader[data-leaving] .spin { animation: throw-y 916ms forwards, toy-spin 611ms step-end infinite; }
       #loader[data-leaving] .hop { animation: hop 583ms cubic-bezier(.3, .6, .5, 1) 666ms forwards; }
@@ -52,14 +52,15 @@
       @keyframes loader-out { to { opacity: 0; } }
       /* A real throw: steady speed across, while gravity slows the rise and speeds
          the fall (quadratic easing on each half of the arc). It peaks at 53.3% of
-         the flight, 90 px above the dog, and lands at the mouth, (110, 9). */
+         the flight, 90 px above the dog, and lands where the held toy appears, (110, 11). */
       @keyframes throw-x { from { transform: translateX(-50vw); } to { transform: translateX(110px); } }
       @keyframes throw-y {
         0% { transform: translateY(40px); animation-timing-function: cubic-bezier(.33, .67, .67, 1); }
         53.3% { transform: translateY(-90px); animation-timing-function: cubic-bezier(.33, 0, .67, .33); }
-        100% { transform: translateY(9px); }
+        100% { transform: translateY(11px); }
       }
-      /* The thrown toy hands over to the one in the dog's mouth. */
+      /* The thrown toy hands over to the one in the dog's mouth, which shows from
+         666 + 42.9% of 583 = 916.07 ms. */
       @keyframes caught { to { visibility: hidden; } }
       @keyframes toy-spin {
         0% { background-image: var(--toy-1); }
@@ -72,13 +73,15 @@
         87.5% { background-image: var(--toy-8); }
         100% { background-image: var(--toy-1); }
       }
-      /* Held sideways just under the snout, following it through jump frames 4 to 7. */
+      /* In the mouth from jump frame 4 to 7, moved by whole art pixels (4 px) to
+         follow the snout: frame 4 is 5 px higher than frame 5, frame 6 is 15 px lower,
+         and frame 7 is 12 px lower and 2 px back. */
       @keyframes held {
-        0% { opacity: 0; transform: translate(110px, 32px); }
-        42.9% { opacity: 1; transform: translate(110px, 32px); }
-        57.1% { opacity: 1; transform: translate(110px, 52px); }
-        71.4% { opacity: 1; transform: translate(110px, 114px); }
-        85.7%, 100% { opacity: 1; transform: translate(102px, 102px); }
+        0% { opacity: 0; transform: translate(0, -20px); }
+        42.9% { opacity: 1; transform: translate(0, -20px); }
+        57.1% { opacity: 1; transform: none; }
+        71.4% { opacity: 1; transform: translate(0, 60px); }
+        85.7%, 100% { opacity: 1; transform: translate(-8px, 48px); }
       }
       @keyframes hop { 50% { transform: translateY(-24px); } }
       @keyframes shadow { 50% { transform: scaleX(0.5); opacity: 0.5; } }
@@ -101,7 +104,7 @@
       /* Reduced motion: a resting dog with its toy on the ground, fading away. */
       @media (prefers-reduced-motion: reduce) {
         #loader .dog { background-image: var(--dog-idle-1); }
-        #loader .held { opacity: 1; transform: translate(150px, 112px); }
+        #loader .held { opacity: 1; transform: translate(28px, 64px); }
         #loader .dog, #loader[data-leaving] :is(.hop, .dog, .held, .throw, .spin),
         #loader[data-leaving] .hop::after { animation: none; }
         #loader[data-leaving] .throw { visibility: hidden; }
