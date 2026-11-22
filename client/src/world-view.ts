@@ -12,7 +12,13 @@ import spritesImage from '../../assets/sprites/sprites.png';
 import spritesData from '../../assets/sprites/sprites.json';
 
 const sides: Side[] = ['left', 'right'];
-const groundY = 12;
+// Everything stands on top of the solid ground (art row 164), not sunk into it,
+// so the grass leaves feet and paws visible.
+const groundY = 9;
+// The soil below the ground art: one row flipped upside down, one upright, then the
+// dark top of the next flipped row, so the view ends on the second dark band.
+const soilTop = 55;
+const soilBottom = soilTop + 2 * 36 + 12;
 // Both two-frame rest animations match the character's 750 ms idle cycle.
 const dogRestFrameRate = 8 / 3;
 
@@ -25,7 +31,8 @@ export class WorldView {
   private partner = new PartnerPlayback();
   private background!: Phaser.GameObjects.Image;
   private soil!: RepeatingLayer;
-  private scenery: { layer: RepeatingLayer; speed: number }[] = [];
+  // Speed is the share of camera movement; drift is the layer's own movement, in world units per second.
+  private scenery: { layer: RepeatingLayer; speed: number; drift: number }[] = [];
   private cursorLayout = '';
 
   constructor(private scene: Phaser.Scene) {}
@@ -43,18 +50,19 @@ export class WorldView {
 
   create(playerX: () => number): void {
     this.background = this.scene.add.image(0, 0, 'Sky').setOrigin(0).setDepth(-4);
-    for (const [name, speed, depth] of [['Clouds', 0.15, -3], ['Bushes', 0.4, -2], ['Trees', 0.7, -1]] as const) {
+    for (const [name, speed, drift, depth] of [['Clouds', 0.15, 4, -3], ['Bushes', 0.4, 0, -2], ['Trees', 0.7, 0, -1]] as const) {
       const layer = createRepeatingLayer(this.scene, { texture: name, y: -477, depth, mirror: name === 'Bushes' });
-      this.scenery.push({ layer, speed });
+      this.scenery.push({ layer, speed, drift });
     }
     // The first background layer is foreground grass, overlapping feet and mailbox posts.
     // Mirror by flipping tiles, not by drawing a mirrored copy into a canvas: phones
     // can discard canvas memory while the page is in the background (e.g. the camera
     // is open), and the ground would come back blank. Image textures always reload.
     const ground = createRepeatingLayer(this.scene, { texture: 'Ground', y: -483, depth: 8, mirror: true });
-    this.scenery.push({ layer: ground, speed: 1 });
+    this.scenery.push({ layer: ground, speed: 1, drift: 0 });
     this.scene.textures.get('Ground').add('soil', 0, 0, 168, this.scene.textures.get('Ground').source[0].width, 12);
-    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: 55, depth: 9, mirror: true });
+    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: soilTop, depth: 9, mirror: true, mirrorRows: true, staggerRows: true,
+    });
 
     const trees = this.scene.textures.get('Trees');
     trees.add('foreground-small', 0, 61, 95, 75, 69);
@@ -109,26 +117,28 @@ export class WorldView {
     const camera = this.scene.cameras.main.setOrigin(0, 0).setRoundPixels(false).setZoom(cameraZoom);
     const visibleWidth = width / camera.zoom;
     const visibleHeight = height / camera.zoom;
-    const top = -Math.round(height * 0.66) / camera.zoom;
+    // Keep the ground two thirds down, but lower it on tall screens so the view
+    // never shows soil past soilBottom.
+    const top = -Math.max(Math.round(height * 0.66), Math.ceil(height - soilBottom * camera.zoom)) / camera.zoom;
     camera.setScroll(0, top);
     // Cover the view using uniform, whole-pixel scaling instead of stretching
     // the sky differently on each axis in portrait and landscape.
     const skyScale = Math.max(3, Math.ceil(visibleWidth / this.background.width), Math.ceil(visibleHeight / this.background.height));
     this.background.setY(top).setScale(skyScale);
-    this.soil.resize(visibleWidth, Math.max(12, visibleHeight * 0.34));
+    this.soil.resize(visibleWidth, soilBottom - soilTop);
     for (const { layer } of this.scenery) {
       layer.resize(visibleWidth, 540);
     }
     this.followPlayer(playerX);
   }
 
-  private resizeCursors(scale: number): void {
+  // Scale is in device pixels per cursor art pixel, like the full-resolution canvas.
+  private resizeCursors(pixelScale: number): void {
     const density = window.devicePixelRatio || 1;
-    const layout = `${scale}:${density}`;
+    const layout = `${pixelScale}:${density}`;
     if (layout === this.cursorLayout) return;
     this.cursorLayout = layout;
     // Match the world's physical pixel grid and prevent native cursor resampling.
-    const pixelScale = scale * Math.max(1, Math.round(density));
     const logicalScale = pixelScale / density;
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d')!;
@@ -153,8 +163,9 @@ export class WorldView {
     camera.scrollX = left;
     this.background.setX(left);
     // Cover only the viewport, scrolling each pattern at its own depth.
-    for (const { layer, speed } of this.scenery) {
-      const offset = Math.round(left * speed * camera.zoom) / camera.zoom;
+    const seconds = this.scene.time.now / 1000;
+    for (const { layer, speed, drift } of this.scenery) {
+      const offset = Math.round((left * speed + seconds * drift) * camera.zoom) / camera.zoom;
       layer.scroll(left, offset);
     }
     this.soil.scroll(left, left);

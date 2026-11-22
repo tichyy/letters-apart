@@ -7,19 +7,26 @@ export interface ViewLayout {
 }
 
 /**
- * The game canvas for a container of this CSS size: each canvas pixel covers a
- * whole number of device pixels, so the canvas can be smaller than the CSS size.
+ * The game canvas for a container of this CSS size, at the display's full resolution:
+ * one canvas pixel per device pixel, so anything moving slower than an art pixel
+ * (the clouds most of all) steps by the smallest amount the screen can show.
  */
 export function canvasSize(cssWidth: number, cssHeight: number, pixelRatio: number): { width: number; height: number } {
-  const pixelScale = Math.max(1, Math.round(pixelRatio));
-  return {
-    width: Math.ceil(cssWidth * pixelRatio / pixelScale),
-    height: Math.ceil(cssHeight * pixelRatio / pixelScale),
-  };
+  return { width: Math.ceil(cssWidth * pixelRatio), height: Math.ceil(cssHeight * pixelRatio) };
 }
 
 /**
- * World zoom for a canvas of this size, in canvas pixels (see canvasSize): world
+ * Camera zoom for a full-resolution canvas. The view is chosen as if each canvas
+ * pixel covered round(pixelRatio) device pixels, then drawn at that many times the
+ * zoom: the visible world and the size of art pixels stay the same on every display.
+ */
+export function canvasZoomFor(width: number, height: number, pixelRatio: number): number {
+  const pixelScale = Math.max(1, Math.round(pixelRatio));
+  return cameraZoomFor(Math.ceil(width / pixelScale), Math.ceil(height / pixelScale)) * pixelScale;
+}
+
+/**
+ * World zoom for a view of this size, in display pixels rounded to whole device pixels: world
  * units visible = canvas pixels / zoom, whatever the display scaling. Always a whole number:
  * artwork is drawn at 2x, 3x and 6x, and a fractional zoom makes art pixels uneven
  * (at 1.5x the 3x layers came out 4 and 5 screen pixels wide, and shimmered).
@@ -63,18 +70,16 @@ export class Viewport {
         density.addEventListener('change', schedule);
         lastPixelRatio = pixelRatio;
       }
-      // Each canvas pixel occupies a whole number of device pixels. Compact
-      // screens show more of the world so the house does not fill the viewport.
-      const pixelScale = Math.max(1, Math.round(pixelRatio));
+      // Compact screens show more of the world so the house does not fill the viewport.
       const { width, height } = canvasSize(bounds.width, bounds.height, pixelRatio);
-      const cameraZoom = cameraZoomFor(width, height);
+      const cameraZoom = canvasZoomFor(width, height, pixelRatio);
       const layout = `${width}:${height}:${pixelRatio}:${cameraZoom}`;
       if (layout === lastLayout) return;
       lastLayout = layout;
 
       // Apply CSS sizing after resizing the backing canvas: Phaser's NONE mode
       // otherwise retains the previous CSS dimensions when the zoom equals one.
-      this.scene.scale.resize(width, height).setZoom(pixelScale / pixelRatio);
+      this.scene.scale.resize(width, height).setZoom(1 / pixelRatio);
       this.resize({ width, height, cameraZoom });
     };
     const schedule = () => {

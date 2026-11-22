@@ -9,6 +9,16 @@ interface LayerOptions {
   depth: number;
   // Flip every other tile, so artwork whose edges don't match still repeats seamlessly.
   mirror?: boolean;
+  // Flip every other row upside down, so a strip that shades from light to dark
+  // meets the next copy at the same shade instead of a hard seam.
+  mirrorRows?: boolean;
+  // Shift each row sideways by its own fixed amount, so the rows' edges don't line up.
+  staggerRows?: boolean;
+}
+
+// Fixed, irregular shift for each row, in artwork pixels.
+function rowShift(row: number): number {
+  return (row * 137 + row * row * 61) % 320;
 }
 
 export interface RepeatingLayer {
@@ -53,7 +63,9 @@ class ImageLayer implements RepeatingLayer {
       const image = this.images[i];
       const row = Math.floor(i / this.columns);
       const visibleHeight = Math.min(this.tileHeight, height - row * this.tileHeight);
-      if (visibleHeight < this.tileHeight) {
+      // Phaser draws a flipped image's crop outside the top of its tile, leaving a gap,
+      // so flipped rows are drawn whole and run past the given height.
+      if (visibleHeight < this.tileHeight && !this.flippedRow(row)) {
         image.setCrop(0, 0, image.width, visibleHeight / artworkScale);
       } else {
         image.setCrop();
@@ -62,17 +74,23 @@ class ImageLayer implements RepeatingLayer {
     this.scroll(this.left, this.offset);
   }
 
+  private flippedRow(row: number): boolean {
+    return !!this.options.mirrorRows && row % 2 === 0;
+  }
+
   scroll(left: number, offset: number): void {
     this.left = left;
     this.offset = offset;
-    const first = Math.floor(offset / this.tileWidth);
-    const phase = offset - first * this.tileWidth;
     for (let i = 0; i < this.images.length; i++) {
       const column = i % this.columns;
       const row = Math.floor(i / this.columns);
+      const shifted = offset + (this.options.staggerRows ? rowShift(row) * artworkScale : 0);
+      const first = Math.floor(shifted / this.tileWidth);
+      const phase = shifted - first * this.tileWidth;
       this.images[i].setPosition(left - phase + column * this.tileWidth, this.options.y + row * this.tileHeight);
       // Parity of the tile's position in the world, so the pattern doesn't change while scrolling.
       if (this.options.mirror) this.images[i].setFlipX(Math.abs(first + column) % 2 === 1);
+      if (this.options.mirrorRows) this.images[i].setFlipY(this.flippedRow(row));
     }
   }
 }
