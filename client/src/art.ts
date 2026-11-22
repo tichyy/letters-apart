@@ -8,7 +8,8 @@ import handGrab from '../../assets/ui/hand_grab.png';
 import handHover from '../../assets/ui/hand_hover.png';
 import handPointer from '../../assets/ui/hand_pointer.png';
 import sky from '../../assets/background/bg_Autumn/Layers/Sky.png';
-import clouds from '../../assets/background/bg_Autumn/Layers/Clouds.png';
+// Upscaled by scripts/upscale_clouds.py, so the clouds can move by fractions of a pixel.
+import clouds from '../../assets/background/bg_Autumn/Layers/Clouds_3x.png';
 import bushes from '../../assets/background/bg_Autumn/Layers/Bushes.png';
 import trees from '../../assets/background/bg_Autumn/Layers/Trees.png';
 import ground from '../../assets/background/bg_Autumn/Layers/Ground.png';

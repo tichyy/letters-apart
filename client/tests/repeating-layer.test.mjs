@@ -13,9 +13,10 @@ const { createRepeatingLayer } = await import(`data:text/javascript;base64,${Buf
 
 function createScene() {
   const images = [];
-  const defaultFrames = { trees: '__BASE', soil: '__BASE' };
+  const defaultFrames = { trees: '__BASE', soil: '__BASE', clouds: '__BASE' };
   const frames = {
     trees: { __BASE: { width: 320, height: 180 }, foreground: { width: 75, height: 69 } },
+    clouds: { __BASE: { width: 960, height: 540 } },
     soil: { __BASE: { width: 640, height: 180 }, soil: { width: 640, height: 12 } },
   };
   const getFrame = (texture, name = defaultFrames[texture]) => frames[texture][name];
@@ -97,6 +98,18 @@ test('repeats soil vertically, crops the last row, and releases excess images af
   layer.resize(390, 36);
   assert.equal(scene.images.filter(image => !image.destroyed).length, 2);
   assert.deepEqual(scene.images[0].crop, [], 'a full row must clear the previous crop');
+});
+
+test('already upscaled art is drawn at its own size and keeps fractional offsets', () => {
+  const scene = createScene();
+  const layer = createRepeatingLayer(scene, { texture: 'clouds', y: -477, depth: -3, scale: 1 });
+  layer.resize(390, 540);
+  assert.equal(scene.images.length, 2);
+  assert.ok(scene.images.every(image => image.scale === 1));
+  layer.scroll(100, 0.25);
+  assert.equal(scene.images[0].x, 99.75);
+  layer.scroll(100, 960.25);
+  assert.equal(scene.images[0].x, 99.75, 'the pattern wraps at the upscaled width');
 });
 
 test('mirrored rows flip upside down, stagger sideways, and draw a flipped last row whole', () => {
