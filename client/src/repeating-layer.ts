@@ -7,8 +7,6 @@ interface LayerOptions {
   frame?: string;
   y: number;
   depth: number;
-  // How much larger to draw the artwork; 1 for art that is already upscaled.
-  scale?: number;
   // Flip every other tile, so artwork whose edges don't match still repeats seamlessly.
   mirror?: boolean;
   // Flip every other row upside down, so a strip that shades from light to dark
@@ -35,7 +33,6 @@ export function createRepeatingLayer(scene: Phaser.Scene, options: LayerOptions)
 
 class ImageLayer implements RepeatingLayer {
   private images: Phaser.GameObjects.Image[] = [];
-  private scale: number;
   private tileWidth: number;
   private tileHeight: number;
   private columns = 0;
@@ -44,9 +41,8 @@ class ImageLayer implements RepeatingLayer {
 
   constructor(private scene: Phaser.Scene, private options: LayerOptions) {
     const frame = scene.textures.get(options.texture).get(options.frame ?? '__BASE');
-    this.scale = options.scale ?? artworkScale;
-    this.tileWidth = frame.width * this.scale;
-    this.tileHeight = frame.height * this.scale;
+    this.tileWidth = frame.width * artworkScale;
+    this.tileHeight = frame.height * artworkScale;
   }
 
   resize(width: number, height: number): void {
@@ -61,16 +57,16 @@ class ImageLayer implements RepeatingLayer {
       // frame. New background copies must keep using the full artwork.
       const { texture, frame = '__BASE', y, depth } = this.options;
       this.images.push(this.scene.add.image(0, y, texture, frame)
-        .setOrigin(0).setScale(this.scale).setDepth(depth));
+        .setOrigin(0).setScale(artworkScale).setDepth(depth));
     }
     for (let i = 0; i < count; i++) {
       const image = this.images[i];
       const row = Math.floor(i / this.columns);
       const visibleHeight = Math.min(this.tileHeight, height - row * this.tileHeight);
-      // Phaser keeps a flipped image's crop at the bottom of the tile, leaving a gap
-      // at the top, so flipped rows are drawn whole and run past the given height.
+      // Phaser draws a flipped image's crop outside the top of its tile, leaving a gap,
+      // so flipped rows are drawn whole and run past the given height.
       if (visibleHeight < this.tileHeight && !this.flippedRow(row)) {
-        image.setCrop(0, 0, image.width, visibleHeight / this.scale);
+        image.setCrop(0, 0, image.width, visibleHeight / artworkScale);
       } else {
         image.setCrop();
       }

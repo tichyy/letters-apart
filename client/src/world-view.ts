@@ -17,8 +17,6 @@ const groundY = 12;
 // dark top of the next flipped row, so the view ends on the second dark band.
 const soilTop = 55;
 const soilBottom = soilTop + 2 * 36 + 12;
-// Clouds drift on their own, in world units per second.
-const cloudDrift = 4;
 // Both two-frame rest animations match the character's 750 ms idle cycle.
 const dogRestFrameRate = 8 / 3;
 
@@ -31,7 +29,8 @@ export class WorldView {
   private partner = new PartnerPlayback();
   private background!: Phaser.GameObjects.Image;
   private soil!: RepeatingLayer;
-  private scenery: { layer: RepeatingLayer; speed: number; smooth?: boolean }[] = [];
+  // Speed is the share of camera movement; drift is the layer's own movement, in world units per second.
+  private scenery: { layer: RepeatingLayer; speed: number; drift: number }[] = [];
   private cursorLayout = '';
 
   constructor(private scene: Phaser.Scene) {}
@@ -49,21 +48,16 @@ export class WorldView {
 
   create(playerX: () => number): void {
     this.background = this.scene.add.image(0, 0, 'Sky').setOrigin(0).setDepth(-4);
-    // Clouds move slower than a screen pixel per frame, so whole-pixel steps would come
-    // at an uneven beat. They move by fractions of a pixel instead, smoothly filtered.
-    this.scene.textures.get('Clouds').setFilter(Phaser.Textures.FilterMode.LINEAR);
-    const clouds = createRepeatingLayer(this.scene, { texture: 'Clouds', y: -477, depth: -3, scale: 1 });
-    this.scenery.push({ layer: clouds, speed: 0.15, smooth: true });
-    for (const [name, speed, depth] of [['Bushes', 0.4, -2], ['Trees', 0.7, -1]] as const) {
+    for (const [name, speed, drift, depth] of [['Clouds', 0.15, 4, -3], ['Bushes', 0.4, 0, -2], ['Trees', 0.7, 0, -1]] as const) {
       const layer = createRepeatingLayer(this.scene, { texture: name, y: -477, depth, mirror: name === 'Bushes' });
-      this.scenery.push({ layer, speed });
+      this.scenery.push({ layer, speed, drift });
     }
     // The first background layer is foreground grass, overlapping feet and mailbox posts.
     // Mirror by flipping tiles, not by drawing a mirrored copy into a canvas: phones
     // can discard canvas memory while the page is in the background (e.g. the camera
     // is open), and the ground would come back blank. Image textures always reload.
     const ground = createRepeatingLayer(this.scene, { texture: 'Ground', y: -483, depth: 8, mirror: true });
-    this.scenery.push({ layer: ground, speed: 1 });
+    this.scenery.push({ layer: ground, speed: 1, drift: 0 });
     this.scene.textures.get('Ground').add('soil', 0, 0, 168, this.scene.textures.get('Ground').source[0].width, 12);
     this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: soilTop, depth: 9, mirror: true, mirrorRows: true, staggerRows: true,
     });
@@ -136,13 +130,13 @@ export class WorldView {
     this.followPlayer(playerX);
   }
 
-  private resizeCursors(scale: number): void {
+  // Scale is in device pixels per cursor art pixel, like the full-resolution canvas.
+  private resizeCursors(pixelScale: number): void {
     const density = window.devicePixelRatio || 1;
-    const layout = `${scale}:${density}`;
+    const layout = `${pixelScale}:${density}`;
     if (layout === this.cursorLayout) return;
     this.cursorLayout = layout;
     // Match the world's physical pixel grid and prevent native cursor resampling.
-    const pixelScale = scale * Math.max(1, Math.round(density));
     const logicalScale = pixelScale / density;
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d')!;
@@ -167,12 +161,9 @@ export class WorldView {
     camera.scrollX = left;
     this.background.setX(left);
     // Cover only the viewport, scrolling each pattern at its own depth.
-    for (const { layer, speed, smooth } of this.scenery) {
-      if (smooth) {
-        layer.scroll(left, left * speed + this.scene.time.now / 1000 * cloudDrift);
-        continue;
-      }
-      const offset = Math.round(left * speed * camera.zoom) / camera.zoom;
+    const seconds = this.scene.time.now / 1000;
+    for (const { layer, speed, drift } of this.scenery) {
+      const offset = Math.round((left * speed + seconds * drift) * camera.zoom) / camera.zoom;
       layer.scroll(left, offset);
     }
     this.soil.scroll(left, left);
