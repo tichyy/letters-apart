@@ -54,7 +54,8 @@ export class WorldView {
     const ground = createRepeatingLayer(this.scene, { texture: 'Ground', y: -483, depth: 8, mirror: true });
     this.scenery.push({ layer: ground, speed: 1 });
     this.scene.textures.get('Ground').add('soil', 0, 0, 168, this.scene.textures.get('Ground').source[0].width, 12);
-    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: 55, depth: 9, mirror: true });
+    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: 55, depth: 9, mirror: true, mirrorRows: true, staggerRows: true,
+    });
 
     const trees = this.scene.textures.get('Trees');
     trees.add('foreground-small', 0, 61, 95, 75, 69);

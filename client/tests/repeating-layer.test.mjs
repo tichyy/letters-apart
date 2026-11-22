@@ -28,6 +28,7 @@ function createScene() {
       setPosition(x, y) { this.x = x; this.y = y; return this; },
       setCrop(...crop) { this.crop = crop; return this; },
       setFlipX(flip) { this.flipX = flip; return this; },
+      setFlipY(flip) { this.flipY = flip; return this; },
       destroy() { this.destroyed = true; },
     };
   }
@@ -96,6 +97,21 @@ test('repeats soil vertically, crops the last row, and releases excess images af
   layer.resize(390, 36);
   assert.equal(scene.images.filter(image => !image.destroyed).length, 2);
   assert.deepEqual(scene.images[0].crop, [], 'a full row must clear the previous crop');
+});
+
+test('mirrored rows flip upside down, stagger sideways, and draw a flipped last row whole', () => {
+  const scene = createScene();
+  const layer = createRepeatingLayer(scene, { texture: 'soil', frame: 'soil', y: 55, depth: 9, mirrorRows: true, staggerRows: true });
+  layer.resize(390, 84);
+  assert.deepEqual(scene.images.map(image => image.flipY), [true, true, false, false, true, true]);
+  // Phaser would draw a flipped crop at the bottom of the tile and leave a gap above it.
+  assert.deepEqual(scene.images[4].crop, [], 'the flipped last row is not cropped');
+  layer.scroll(0, 0);
+  assert.equal(scene.images[0].x, 0, 'the first row stays aligned with the ground above');
+  assert.notEqual(scene.images[2].x, scene.images[0].x, 'the next row is shifted sideways');
+  const before = scene.images.map(image => image.x - 0);
+  layer.scroll(1920, 1920);
+  assert.deepEqual(scene.images.map(image => image.x - 1920), before, 'the stagger stays fixed in the world while scrolling');
 });
 
 test('mirrored layers flip alternate tiles by world position, without canvas copies', () => {
