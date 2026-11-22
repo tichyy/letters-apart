@@ -13,6 +13,10 @@ import spritesData from '../../assets/sprites/sprites.json';
 
 const sides: Side[] = ['left', 'right'];
 const groundY = 12;
+// The soil below the ground art: one row flipped upside down, one upright, then the
+// dark top of the next flipped row, so the view ends on the second dark band.
+const soilTop = 55;
+const soilBottom = soilTop + 2 * 36 + 12;
 // Both two-frame rest animations match the character's 750 ms idle cycle.
 const dogRestFrameRate = 8 / 3;
 
@@ -54,7 +58,7 @@ export class WorldView {
     const ground = createRepeatingLayer(this.scene, { texture: 'Ground', y: -483, depth: 8, mirror: true });
     this.scenery.push({ layer: ground, speed: 1 });
     this.scene.textures.get('Ground').add('soil', 0, 0, 168, this.scene.textures.get('Ground').source[0].width, 12);
-    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: 55, depth: 9, mirror: true, mirrorRows: true, staggerRows: true,
+    this.soil = createRepeatingLayer(this.scene, { texture: 'Ground', frame: 'soil', y: soilTop, depth: 9, mirror: true, mirrorRows: true, staggerRows: true,
     });
 
     const trees = this.scene.textures.get('Trees');
@@ -110,13 +114,15 @@ export class WorldView {
     const camera = this.scene.cameras.main.setOrigin(0, 0).setRoundPixels(false).setZoom(cameraZoom);
     const visibleWidth = width / camera.zoom;
     const visibleHeight = height / camera.zoom;
-    const top = -Math.round(height * 0.66) / camera.zoom;
+    // Keep the ground two thirds down, but lower it on tall screens so the view
+    // never shows soil past soilBottom.
+    const top = -Math.max(Math.round(height * 0.66), Math.ceil(height - soilBottom * camera.zoom)) / camera.zoom;
     camera.setScroll(0, top);
     // Cover the view using uniform, whole-pixel scaling instead of stretching
     // the sky differently on each axis in portrait and landscape.
     const skyScale = Math.max(3, Math.ceil(visibleWidth / this.background.width), Math.ceil(visibleHeight / this.background.height));
     this.background.setY(top).setScale(skyScale);
-    this.soil.resize(visibleWidth, Math.max(12, visibleHeight * 0.34));
+    this.soil.resize(visibleWidth, soilBottom - soilTop);
     for (const { layer } of this.scenery) {
       layer.resize(visibleWidth, 540);
     }
