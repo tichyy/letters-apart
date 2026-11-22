@@ -178,7 +178,7 @@ test('a partner stalled mid-jump still falls and lands', () => {
   const state = running(10, { y: -60, vy: -200 });
   const stream = Array.from({ length: 120 }, (_, frame) => [frame * dt, state]);
   const { frames } = play(stream, 2000);
-  assert.equal(frames.at(-1).y, 12); // groundY, exactly
+  assert.equal(frames.at(-1).y, 9); // groundY, exactly
   assert.match(frames.at(-1).animation, /-idle$/);
 });
 
@@ -250,10 +250,10 @@ test('the partner animation follows the drawn height after a delayed landing', (
   for (let frame = 4; frame < 120; frame++) stream.push([frame * dt, landed]);
   const { frames } = play(stream, 2000);
   for (const frame of frames) {
-    if (frame.y < 12) assert.match(frame.animation, /-(jump|fall)$/, `${frame.animation} at y ${frame.y}`);
+    if (frame.y < 9) assert.match(frame.animation, /-(jump|fall)$/, `${frame.animation} at y ${frame.y}`);
   }
   assert.ok(frames.some(frame => /-land$/.test(frame.animation)), 'shows the landing');
-  assert.equal(frames.at(-1).y, 12);
+  assert.equal(frames.at(-1).y, 9);
   assert.match(frames.at(-1).animation, /-idle$/);
 });
 

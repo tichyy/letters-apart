@@ -12,7 +12,9 @@ import spritesImage from '../../assets/sprites/sprites.png';
 import spritesData from '../../assets/sprites/sprites.json';
 
 const sides: Side[] = ['left', 'right'];
-const groundY = 12;
+// Everything stands on top of the solid ground (art row 164), not sunk into it,
+// so the grass leaves feet and paws visible.
+const groundY = 9;
 // The soil below the ground art: one row flipped upside down, one upright, then the
 // dark top of the next flipped row, so the view ends on the second dark band.
 const soilTop = 55;
