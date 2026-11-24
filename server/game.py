@@ -5,15 +5,16 @@ import hashlib
 import json
 import logging
 import math
-import re
 import sqlite3
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from fastapi import WebSocket
 
+from .images import IMAGE_ID
 from .store import Store, session_owner
 
 SIDES = ("left", "right")
@@ -28,6 +29,9 @@ MESSAGE_BURST = 20
 MAX_BUFFERED_INPUTS = 2 * WORLD["tickRate"]
 # /healthz fails when no tick has completed successfully within this many seconds.
 HEALTHY_WITHIN = 1.0
+# Interactions wait for the movement sent before them, so they use the position the
+# player saw on screen. "stop" waits for every input received.
+SEQUENCED = ("interact", "gallery", "stop")
 logger = logging.getLogger(__name__)
 
 
@@ -154,6 +158,16 @@ class Game:
         self.mail = {side: store.summary(side) for side in SIDES}
         self.last_tick: float | None = None
         self.last_error = -math.inf
+        self.handlers: dict[str, Callable[[str, dict, str | None], dict | None]] = {
+            "input": self.receive_inputs,
+            "stop": self.pause,
+            "interact": self.interact,
+            "gallery": self.gallery,
+            "delete": self.delete,
+            "read": self.read,
+            "write": self.write,
+            "drop": self.drop,
+        }
 
     def snapshot(self) -> dict:
         return {
@@ -242,10 +256,7 @@ class Game:
         player.received = player.ack
         player.actions.clear()
         player.credit = 0
-        player.paused = True
-        player.moving = False
-        player.jump_held = False
-        player.jump_chain = 0
+        pause(player)
 
     def healthy(self) -> bool:
         """True while the game loop is ticking."""
@@ -294,195 +305,209 @@ class Game:
         self, side: str, message: dict, session_token: str | None = None
     ) -> dict | None:
         kind = message.get("type")
+        handler = self.handlers.get(kind) if isinstance(kind, str) else None
+        if handler is None:
+            raise ValueError("Unknown action.")
+        if kind in SEQUENCED and self.defer(side, message, session_token):
+            return None
+        return handler(side, message, session_token)
+
+    def defer(self, side: str, message: dict, session_token: str | None) -> bool:
+        """Queue an interaction until the inputs sent before it are applied.
+
+        Returns True when queued; step() replays it once the input is acknowledged."""
         player = self.players[side]
-        other = "right" if side == "left" else "left"
+        after = message.get(
+            "after", player.received if message["type"] == "stop" else player.ack
+        )
+        if type(after) is not int or not 0 <= after <= player.received:
+            raise Desync("Invalid interaction sequence.")
+        if after <= player.ack:
+            return False
+        if len(player.actions) >= 4:
+            raise ValueError("Please wait for your previous interaction.")
+        player.actions.append((after, {**message, "after": after}, session_token))
+        return True
 
-        if kind in ("interact", "gallery", "stop"):
-            after = message.get(
-                "after", player.received if kind == "stop" else player.ack
-            )
-            if type(after) is not int or not 0 <= after <= player.received:
-                raise Desync("Invalid interaction sequence.")
-            if after > player.ack:
-                if len(player.actions) >= 4:
-                    raise ValueError("Please wait for your previous interaction.")
-                player.actions.append((after, {**message, "after": after}, session_token))
-                return None
-
-        if kind == "input":
-            inputs = message.get("inputs")
-            if not isinstance(inputs, list) or not 1 <= len(inputs) <= 8:
+    def receive_inputs(self, side: str, message: dict, _token: str | None) -> None:
+        player = self.players[side]
+        inputs = message.get("inputs")
+        if not isinstance(inputs, list) or not 1 <= len(inputs) <= 8:
+            raise Desync("Invalid movement input.")
+        # Validate the entire batch before modifying movement state.
+        previous = player.received
+        for item in inputs:
+            if not isinstance(item, dict):
                 raise Desync("Invalid movement input.")
-            # Validate the entire batch before modifying movement state.
-            previous = player.received
-            for item in inputs:
-                if not isinstance(item, dict):
-                    raise Desync("Invalid movement input.")
-                seq, direction = item.get("seq"), item.get("direction")
-                if (
-                    type(seq) is not int
-                    or seq != previous + 1
-                    or type(direction) is not int
-                    or direction not in (-1, 0, 1)
-                    or type(item.get("jump", False)) is not bool
-                ):
-                    raise Desync("Invalid movement sequence.")
-                previous = seq
-            if len(player.inputs) + len(inputs) > MAX_BUFFERED_INPUTS:
-                raise Desync("Too many queued movement inputs.")
-            for item in inputs:
-                player.inputs.append(
-                    (item["seq"], item["direction"], item.get("jump", False))
-                )
-            player.received = previous
-            player.paused = False
-            return None
-
-        if kind == "stop":
-            player.paused = True
-            player.moving = False
-            player.jump_held = False
-            player.jump_chain = 0
-            return None
-
-        if kind == "read":
-            postcard_id = message.get("id")
-            if type(postcard_id) is not int or postcard_id < 1:
-                raise ValueError("Invalid postcard.")
-            self.store.mark_read(side, postcard_id)
-            self.refresh_mail()
-            return None
-
-        if kind in ("gallery", "delete"):
-            if not self.nearby(side, WORLD["desks"][side]):
-                raise ValueError("Return to your home to browse received postcards.")
-            page = message.get("page", 0)
-            if type(page) is not int or not 0 <= page <= 2**31 - 1:
-                raise ValueError("Invalid gallery page.")
-            if kind == "delete":
-                postcard_id = message.get("id")
-                if type(postcard_id) is not int or postcard_id < 1:
-                    raise ValueError("Invalid postcard.")
-                self.store.delete(side, postcard_id)
-                self.refresh_mail()
-            cards = self.store.inbox(
-                side,
-                include_read=True,
-                limit=GALLERY_PAGE_SIZE + 1,
-                offset=page * GALLERY_PAGE_SIZE,
-            )
-            if kind == "delete" and not cards and page > 0:
-                page -= 1
-                cards = self.store.inbox(
-                    side,
-                    include_read=True,
-                    limit=GALLERY_PAGE_SIZE + 1,
-                    offset=page * GALLERY_PAGE_SIZE,
-                )
-            return {
-                "type": "gallery",
-                "postcards": cards[:GALLERY_PAGE_SIZE],
-                "page": page,
-                "hasMore": len(cards) > GALLERY_PAGE_SIZE,
-            }
-
-        if kind == "write":
-            body = message.get("body")
-            title = message.get("title", "")
-            stamp = message.get("stamp", 1)
-            if not isinstance(body, str) or not 1 <= len(body.strip()) <= 1000:
-                raise ValueError("Write a message between 1 and 1,000 characters.")
+            seq, direction = item.get("seq"), item.get("direction")
             if (
-                not isinstance(title, str)
-                or len(title.strip()) > 60
-                or "\n" in title
-                or "\r" in title
+                type(seq) is not int
+                or seq != previous + 1
+                or type(direction) is not int
+                or direction not in (-1, 0, 1)
+                or type(item.get("jump", False)) is not bool
             ):
-                raise ValueError(
-                    "Keep the title to one line and at most 60 characters."
-                )
-            if type(stamp) is not int or stamp not in (1, 2, 3):
-                raise ValueError("Choose one of the three stamps.")
-            image_id = message.get("imageId")
-            if image_id is not None and (
-                not isinstance(image_id, str)
-                or not re.fullmatch(r"[a-f0-9]{32}", image_id)
-            ):
-                raise ValueError("Invalid photo.")
-            crop = message.get("crop", {"x": 0.5, "y": 0.5, "zoom": 1})
-            if not isinstance(crop, dict) or any(
-                type(crop.get(key)) not in (int, float)
-                or not lower <= crop[key] <= upper
-                or not math.isfinite(crop[key])
-                for key, lower, upper in (("x", 0, 1), ("y", 0, 1), ("zoom", 1, 5))
-            ):
-                raise ValueError("Invalid photo position or zoom.")
-            request_id = message.get("requestId")
-            if request_id is not None and (
-                not isinstance(request_id, str)
-                or not re.fullmatch(r"[a-f0-9]{32}", request_id)
-            ):
-                raise ValueError("Invalid postcard request.")
-            if (image_id or request_id) and not session_token:
-                raise ValueError("Reconnect to the game to save this postcard.")
-            owner = session_owner(side, session_token) if session_token else None
-            payload_hash = hashlib.sha256(
-                json.dumps(
-                    [body.strip(), title.strip(), stamp, image_id, crop],
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
-            acknowledgement = {
-                "type": "written",
-                **({"requestId": request_id} if request_id else {}),
-            }
-            if request_id and self.store.completed_write(
-                owner, request_id, payload_hash
-            ):
-                return acknowledgement
-            if not self.nearby(side, WORLD["desks"][side]):
-                raise ValueError("Return to your desk to write a postcard.")
-            if self.mail[side]["carrying"]:
-                raise ValueError("Deliver the postcard in your backpack first.")
-            self.store.write(
-                side,
-                body.strip(),
-                stamp,
-                title.strip(),
-                image_id=image_id,
-                crop=(crop["x"], crop["y"], crop["zoom"]),
-                owner=owner,
-                request_id=request_id,
-                payload_hash=payload_hash,
+                raise Desync("Invalid movement sequence.")
+            previous = seq
+        if len(player.inputs) + len(inputs) > MAX_BUFFERED_INPUTS:
+            raise Desync("Too many queued movement inputs.")
+        for item in inputs:
+            player.inputs.append(
+                (item["seq"], item["direction"], item.get("jump", False))
             )
-            self.refresh_mail()
+        player.received = previous
+        player.paused = False
+
+    def pause(self, side: str, _message: dict, _token: str | None) -> None:
+        pause(self.players[side])
+
+    def read(self, side: str, message: dict, _token: str | None) -> None:
+        self.store.mark_read(side, postcard_id(message))
+        self.refresh_mail()
+
+    def gallery(self, side: str, message: dict, _token: str | None) -> dict:
+        return self.gallery_page(side, self.desk_page(side, message))
+
+    def delete(self, side: str, message: dict, _token: str | None) -> dict:
+        page = self.desk_page(side, message)
+        self.store.delete(side, postcard_id(message))
+        self.refresh_mail()
+        response = self.gallery_page(side, page)
+        # Deleting the only card on the last page shows the page before it.
+        if not response["postcards"] and page > 0:
+            response = self.gallery_page(side, page - 1)
+        return response
+
+    def desk_page(self, side: str, message: dict) -> int:
+        """The requested gallery page, which can only be browsed from home."""
+        if not self.nearby(side, WORLD["desks"][side]):
+            raise ValueError("Return to your home to browse received postcards.")
+        page = message.get("page", 0)
+        if type(page) is not int or not 0 <= page <= 2**31 - 1:
+            raise ValueError("Invalid gallery page.")
+        return page
+
+    def gallery_page(self, side: str, page: int) -> dict:
+        # One extra card tells whether another page follows.
+        cards = self.store.inbox(
+            side,
+            include_read=True,
+            limit=GALLERY_PAGE_SIZE + 1,
+            offset=page * GALLERY_PAGE_SIZE,
+        )
+        return {
+            "type": "gallery",
+            "postcards": cards[:GALLERY_PAGE_SIZE],
+            "page": page,
+            "hasMore": len(cards) > GALLERY_PAGE_SIZE,
+        }
+
+    def write(self, side: str, message: dict, session_token: str | None) -> dict:
+        body = message.get("body")
+        title = message.get("title", "")
+        stamp = message.get("stamp", 1)
+        if not isinstance(body, str) or not 1 <= len(body.strip()) <= 1000:
+            raise ValueError("Write a message between 1 and 1,000 characters.")
+        if (
+            not isinstance(title, str)
+            or len(title.strip()) > 60
+            or "\n" in title
+            or "\r" in title
+        ):
+            raise ValueError("Keep the title to one line and at most 60 characters.")
+        if type(stamp) is not int or stamp not in (1, 2, 3):
+            raise ValueError("Choose one of the three stamps.")
+        image_id = message.get("imageId")
+        if image_id is not None and not hex_id(image_id):
+            raise ValueError("Invalid photo.")
+        crop = message.get("crop", {"x": 0.5, "y": 0.5, "zoom": 1})
+        if not isinstance(crop, dict) or any(
+            type(crop.get(key)) not in (int, float)
+            or not lower <= crop[key] <= upper
+            or not math.isfinite(crop[key])
+            for key, lower, upper in (("x", 0, 1), ("y", 0, 1), ("zoom", 1, 5))
+        ):
+            raise ValueError("Invalid photo position or zoom.")
+        request_id = message.get("requestId")
+        if request_id is not None and not hex_id(request_id):
+            raise ValueError("Invalid postcard request.")
+        if (image_id or request_id) and not session_token:
+            raise ValueError("Reconnect to the game to save this postcard.")
+        owner = session_owner(side, session_token) if session_token else None
+        payload_hash = hashlib.sha256(
+            json.dumps(
+                [body.strip(), title.strip(), stamp, image_id, crop],
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        acknowledgement = {
+            "type": "written",
+            **({"requestId": request_id} if request_id else {}),
+        }
+        if request_id and self.store.completed_write(owner, request_id, payload_hash):
             return acknowledgement
+        if not self.nearby(side, WORLD["desks"][side]):
+            raise ValueError("Return to your desk to write a postcard.")
+        if self.mail[side]["carrying"]:
+            raise ValueError("Deliver the postcard in your backpack first.")
+        self.store.write(
+            side,
+            body.strip(),
+            stamp,
+            title.strip(),
+            image_id=image_id,
+            crop=(crop["x"], crop["y"], crop["zoom"]),
+            owner=owner,
+            request_id=request_id,
+            payload_hash=payload_hash,
+        )
+        self.refresh_mail()
+        return acknowledgement
 
-        if kind == "drop":
-            if not self.mail[side]["carrying"]:
-                return None
-            self.store.drop(side)
-            self.refresh_mail()
-            return {"type": "dropped"}
-
-        if kind == "interact":
-            if self.nearby(side, WORLD["desks"][side]):
-                if self.mail[side]["carrying"]:
-                    return None
-                return {"type": "compose"}
-            if self.nearby(side, WORLD["mailboxes"][other]):
-                if not self.mail[side]["carrying"]:
-                    return None
-                self.use_mailbox(other)
-                self.store.deliver(side)
-                self.refresh_mail()
-                for peer in self.peers.values():
-                    peer.send({"type": "delivered", "sender": side, "recipient": other})
-                return None
-            if self.nearby(side, WORLD["mailboxes"][side]):
-                self.use_mailbox(side)
-                cards = self.store.inbox(side)
-                return {"type": "mailbox", "postcards": cards} if cards else None
+    def drop(self, side: str, _message: dict, _token: str | None) -> dict | None:
+        if not self.mail[side]["carrying"]:
             return None
+        self.store.drop(side)
+        self.refresh_mail()
+        return {"type": "dropped"}
 
-        raise ValueError("Unknown action.")
+    def interact(self, side: str, _message: dict, _token: str | None) -> dict | None:
+        """Use whatever is in reach: the desk, the partner's mailbox or your own."""
+        other = "right" if side == "left" else "left"
+        carrying = self.mail[side]["carrying"]
+        if self.nearby(side, WORLD["desks"][side]):
+            return None if carrying else {"type": "compose"}
+        if self.nearby(side, WORLD["mailboxes"][other]):
+            if not carrying:
+                return None
+            self.use_mailbox(other)
+            self.store.deliver(side)
+            self.refresh_mail()
+            for peer in self.peers.values():
+                peer.send({"type": "delivered", "sender": side, "recipient": other})
+            return None
+        if self.nearby(side, WORLD["mailboxes"][side]):
+            self.use_mailbox(side)
+            cards = self.store.inbox(side)
+            return {"type": "mailbox", "postcards": cards} if cards else None
+        return None
+
+
+def pause(player: Player) -> None:
+    """Stop moving in place; a fall in progress still lands."""
+    player.paused = True
+    player.moving = False
+    player.jump_held = False
+    player.jump_chain = 0
+
+
+def postcard_id(message: dict) -> int:
+    value = message.get("id")
+    if type(value) is not int or value < 1:
+        raise ValueError("Invalid postcard.")
+    return value
+
+
+def hex_id(value: object) -> bool:
+    """Photo and postcard request IDs: 32 lowercase hex characters."""
+    return isinstance(value, str) and IMAGE_ID.fullmatch(value) is not None
