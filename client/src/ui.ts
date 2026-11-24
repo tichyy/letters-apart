@@ -34,6 +34,7 @@ export class UI {
   private updateCompose?: () => void;
   private caretCleanup?: () => void;
   private scaleCleanup?: () => void;
+  private writingCleanup?: () => void;
   private measureContext?: CanvasRenderingContext2D;
   private galleryFromEnd = false;
   private galleryFront = true;
@@ -255,6 +256,7 @@ export class UI {
     const textarea = form.querySelector('textarea')!;
     for (const field of [title, textarea]) this.limitPostcardText(field);
     this.trackInsertion(form);
+    this.zoomToWriting(form);
     const pack = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
     const reset = form.querySelector<HTMLButtonElement>('[type="reset"]')!;
     const preview = form.querySelector<HTMLElement>('.postcard-stamp')!;
@@ -525,6 +527,71 @@ export class UI {
     this.scaleCleanup = () => resize.disconnect();
   }
 
+  /**
+   * Touch screens show the card small, so while a text field has the keyboard the
+   * card widens until its writing area fills the dialog, and the dialog scrolls to
+   * it. The card is laid out in percentages of its width and its text side rescales
+   * with it (scaleText), so only the width changes. style.css sets the zoomed width.
+   */
+  private zoomToWriting(form: HTMLFormElement): void {
+    if (!matchMedia('(pointer: coarse)').matches) return;
+    // Left edge of the writing area, as a fraction of the card's width: the title and
+    // message start at 7.5% and end at 46.2%, with a little paper either side.
+    const writingLeft = 0.045;
+    const margin = 8;
+    const panel = this.panel;
+    const fields = [...form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.postcard-title, .postcard-message')];
+    const stage = form.querySelector<HTMLElement>('.postcard-stage')!;
+    const events = new AbortController();
+    const options = { signal: events.signal };
+    let frame = 0;
+    const writingField = () => fields.find(field => field === document.activeElement && !field.readOnly);
+    const scroll = () => {
+      frame = 0;
+      const field = writingField();
+      if (!field || !panel.hasAttribute('data-writing')) return;
+      const view = panel.getBoundingClientRect();
+      const card = stage.getBoundingClientRect();
+      panel.scrollLeft += card.left + card.width * writingLeft - view.left;
+      // Show the field from its top, then keep the typing position in view below it.
+      const box = field.getBoundingClientRect();
+      let offset = box.top - view.top - margin;
+      const caret = form.querySelector<HTMLElement>('.postcard-insertion');
+      if (caret && !caret.hidden) {
+        const mark = caret.getBoundingClientRect();
+        offset = Math.max(offset, mark.bottom - view.bottom + margin);
+      }
+      panel.scrollTop += offset;
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(scroll);
+    };
+    const update = () => {
+      const writing = !!writingField();
+      if (writing !== panel.hasAttribute('data-writing')) {
+        panel.toggleAttribute('data-writing', writing);
+        if (!writing) panel.scrollLeft = 0;
+      }
+      if (writing) schedule();
+    };
+    // Focus moving from the title to the message passes through the body: wait a
+    // frame so the card doesn't zoom out and back in between them.
+    form.addEventListener('focusin', update, options);
+    // Opening the dialog focuses the title without a keyboard; the tap that brings
+    // the keyboard up then gives no focus event.
+    form.addEventListener('click', update, options);
+    form.addEventListener('focusout', () => requestAnimationFrame(update), options);
+    form.addEventListener('input', schedule, options);
+    document.addEventListener('selectionchange', () => { if (writingField()) schedule(); }, options);
+    // The keyboard slides in after focus and shrinks the visible area.
+    window.visualViewport?.addEventListener('resize', schedule, options);
+    this.writingCleanup = () => {
+      events.abort();
+      cancelAnimationFrame(frame);
+      panel.removeAttribute('data-writing');
+    };
+  }
+
   private trackInsertion(form: HTMLFormElement): void {
     const back = form.querySelector<HTMLElement>('.postcard-back')!;
     const highlight = document.createElement('span');
@@ -711,6 +778,8 @@ export class UI {
     this.caretCleanup = undefined;
     this.scaleCleanup?.();
     this.scaleCleanup = undefined;
+    this.writingCleanup?.();
+    this.writingCleanup = undefined;
     this.libraryReader = undefined;
     this.photo?.dispose();
     this.photo = undefined;

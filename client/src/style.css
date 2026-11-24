@@ -101,6 +101,10 @@ dialog:is([data-kind="compose"], [data-kind="postcard"]) {
 dialog[data-kind="compose"] {
   max-height: calc(var(--viewport-height, 100dvh) - 32px); overflow-y: auto;
 }
+/* While typing on a touch screen, widen the card until its writing area (44.7% of
+   the card, see zoomToWriting in ui.ts) fills the dialog, up to 1.5x its full size. */
+dialog[data-kind="compose"][data-writing] { overflow: auto; }
+dialog[data-kind="compose"][data-writing] .postcard-editor { width: max(100%, min(calc(100% / 0.447), 954px)); }
 dialog[data-kind="postcard"] {
   width: min(636px, calc(var(--viewport-width, 100vw) - 32px), calc((var(--viewport-height, 100dvh) - 32px) * 106 / 101));
 }
