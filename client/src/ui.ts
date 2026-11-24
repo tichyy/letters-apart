@@ -31,6 +31,7 @@ export class UI {
   private side?: Side;
   private updateCompose?: () => void;
   private caretCleanup?: () => void;
+  private scaleCleanup?: () => void;
   private galleryFromEnd = false;
   private galleryFront = true;
   private galleryIndex = 0;
@@ -485,6 +486,7 @@ export class UI {
         </div>`}
       </form>`);
     const form = this.panel.querySelector('form')!;
+    this.scaleText(form);
     form.querySelector('textarea')!.value = body;
     if (!writing) this.readLarger(form);
     const turn = form.querySelector<HTMLButtonElement>('.postcard-turn')!;
@@ -507,6 +509,17 @@ export class UI {
       turn.setAttribute('aria-pressed', String(front));
     };
     return form;
+  }
+
+  /** Scale the text side, laid out at the desktop card's width, to the card on screen. */
+  private scaleText(form: HTMLFormElement): void {
+    const stage = form.querySelector<HTMLElement>('.postcard-stage')!;
+    const back = form.querySelector<HTMLElement>('.postcard-back')!;
+    const update = () => stage.style.setProperty('--postcard-scale', String(stage.clientWidth / back.offsetWidth || 1));
+    const resize = new ResizeObserver(update);
+    resize.observe(stage);
+    update();
+    this.scaleCleanup = () => resize.disconnect();
   }
 
   private trackInsertion(form: HTMLFormElement): void {
@@ -541,13 +554,15 @@ export class UI {
       marker.textContent = character && character !== '\n' ? character : '\u00a0';
       mirror.replaceChildren(document.createTextNode(field.value.slice(0, index)), marker,
         document.createTextNode(field.value.slice(index + character.length)));
+      // Measured on screen, where the text side is scaled; placed in its own layout.
+      const scale = back.getBoundingClientRect().width / back.offsetWidth || 1;
       const cell = marker.getBoundingClientRect();
       const origin = mirror.getBoundingClientRect();
       const inset = field instanceof HTMLInputElement ? (field.clientHeight - size) / 2 : 0;
       Object.assign(highlight.style, {
-        left: `${Math.round(field.offsetLeft + cell.left - origin.left - field.scrollLeft)}px`,
-        top: `${Math.round(field.offsetTop + inset + cell.top - origin.top + size * 0.3125 - field.scrollTop)}px`,
-        width: `${Math.max(2, Math.round(cell.width))}px`, height: `${Math.round(size * 0.5)}px`,
+        left: `${Math.round(field.offsetLeft + (cell.left - origin.left) / scale - field.scrollLeft)}px`,
+        top: `${Math.round(field.offsetTop + inset + (cell.top - origin.top) / scale + size * 0.3125 - field.scrollTop)}px`,
+        width: `${Math.max(2, Math.round(cell.width / scale))}px`, height: `${Math.round(size * 0.5)}px`,
       });
       highlight.hidden = false;
     };
@@ -662,6 +677,8 @@ export class UI {
   private releasePanel(): void {
     this.caretCleanup?.();
     this.caretCleanup = undefined;
+    this.scaleCleanup?.();
+    this.scaleCleanup = undefined;
     this.libraryReader = undefined;
     this.photo?.dispose();
     this.photo = undefined;
