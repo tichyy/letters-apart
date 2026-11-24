@@ -2,6 +2,7 @@ import type { ClientMessage, Postcard, Side, Stamp } from './protocol';
 import type { Connection } from './connection';
 import { PhotoEditor } from './photo-editor';
 import { PostcardOutbox } from './postcard-outbox';
+import { pinchedWidth, scrollAround } from './card-zoom';
 import { postcardArt, stampArt } from './art';
 import world from '../../world.json';
 
@@ -34,7 +35,9 @@ export class UI {
   private updateCompose?: () => void;
   private caretCleanup?: () => void;
   private scaleCleanup?: () => void;
-  private writingCleanup?: () => void;
+  /** Rescale the text side now, not after the next layout, once the card's width is set. */
+  private rescaleText?: () => void;
+  private zoomCleanup?: () => void;
   private measureContext?: CanvasRenderingContext2D;
   private galleryFromEnd = false;
   private galleryFront = true;
@@ -256,7 +259,7 @@ export class UI {
     const textarea = form.querySelector('textarea')!;
     for (const field of [title, textarea]) this.limitPostcardText(field);
     this.trackInsertion(form);
-    this.zoomToWriting(form);
+    this.pinchToZoom(form);
     const pack = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
     const reset = form.querySelector<HTMLButtonElement>('[type="reset"]')!;
     const preview = form.querySelector<HTMLElement>('.postcard-stamp')!;
@@ -524,71 +527,104 @@ export class UI {
     const resize = new ResizeObserver(update);
     resize.observe(stage);
     update();
+    this.rescaleText = update;
     this.scaleCleanup = () => resize.disconnect();
   }
 
   /**
-   * Touch screens show the card small, so while a text field has the keyboard the
-   * card widens until its writing area fills the dialog, and the dialog scrolls to
-   * it. The card is laid out in percentages of its width and its text side rescales
-   * with it (scaleText), so only the width changes. style.css sets the zoomed width.
+   * Touch screens show the card small, so two fingers on its message side zoom it,
+   * up to 2.5x its full size, until it is pinched back, turned over or closed. The
+   * card is laid out in percentages of its width and its text side rescales with it
+   * (scaleText), so only the width changes. The photo side keeps pinch for its crop.
    */
-  private zoomToWriting(form: HTMLFormElement): void {
+  private pinchToZoom(form: HTMLFormElement): void {
     if (!matchMedia('(pointer: coarse)').matches) return;
-    // Left edge of the writing area, as a fraction of the card's width: the title and
-    // message start at 7.5% and end at 46.2%, with a little paper either side.
-    const writingLeft = 0.045;
     const margin = 8;
     const panel = this.panel;
-    const fields = [...form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.postcard-title, .postcard-message')];
-    const stage = form.querySelector<HTMLElement>('.postcard-stage')!;
     const events = new AbortController();
     const options = { signal: events.signal };
+    const zoomed = () => panel.hasAttribute('data-zoomed');
+    const setWidth = (width: number | null) => {
+      const zoom = width !== null && width > panel.clientWidth + 1;
+      panel.toggleAttribute('data-zoomed', zoom);
+      form.style.width = zoom ? `${width}px` : '';
+      this.rescaleText?.();
+      if (!zoom) panel.scrollLeft = 0;
+    };
+
+    // While zoomed, keep the typing position in view as it moves and as the keyboard
+    // comes and goes.
     let frame = 0;
-    const writingField = () => fields.find(field => field === document.activeElement && !field.readOnly);
-    const scroll = () => {
+    let pinch: { distance: number; width: number; x: number; y: number } | undefined;
+    const reveal = () => {
       frame = 0;
-      const field = writingField();
-      if (!field || !panel.hasAttribute('data-writing')) return;
-      const view = panel.getBoundingClientRect();
-      const card = stage.getBoundingClientRect();
-      panel.scrollLeft += card.left + card.width * writingLeft - view.left;
-      // Show the field from its top, then keep the typing position in view below it.
-      const box = field.getBoundingClientRect();
-      let offset = box.top - view.top - margin;
       const caret = form.querySelector<HTMLElement>('.postcard-insertion');
-      if (caret && !caret.hidden) {
-        const mark = caret.getBoundingClientRect();
-        offset = Math.max(offset, mark.bottom - view.bottom + margin);
-      }
-      panel.scrollTop += offset;
+      if (!zoomed() || pinch || !caret || caret.hidden) return;
+      const view = panel.getBoundingClientRect();
+      const mark = caret.getBoundingClientRect();
+      if (mark.bottom > view.bottom - margin) panel.scrollTop += mark.bottom - view.bottom + margin;
+      else if (mark.top < view.top + margin) panel.scrollTop -= view.top + margin - mark.top;
+      // Show the field's whole width when it fits, so lines aren't cut at their start;
+      // zoomed further, just keep the typing position on screen.
+      const field = document.activeElement;
+      const box = (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && form.contains(field)
+        && field.getBoundingClientRect().width <= view.width - 2 * margin ? field.getBoundingClientRect() : mark;
+      if (box.right > view.right - margin) panel.scrollLeft += box.right - view.right + margin;
+      if (box.left < view.left + margin) panel.scrollLeft -= view.left + margin - box.left;
     };
     const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(scroll);
+      if (!frame) frame = requestAnimationFrame(reveal);
     };
-    const update = () => {
-      const writing = !!writingField();
-      if (writing !== panel.hasAttribute('data-writing')) {
-        panel.toggleAttribute('data-writing', writing);
-        if (!writing) panel.scrollLeft = 0;
-      }
-      if (writing) schedule();
+
+    // Two fingers resize the card around the point between them and pan it as they move.
+    const fingers = (event: TouchEvent) => {
+      const [a, b] = [event.touches[0], event.touches[1]];
+      const view = panel.getBoundingClientRect();
+      return {
+        distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+        x: (a.clientX + b.clientX) / 2 - view.left - panel.clientLeft,
+        y: (a.clientY + b.clientY) / 2 - view.top - panel.clientTop,
+      };
     };
-    // Focus moving from the title to the message passes through the body: wait a
-    // frame so the card doesn't zoom out and back in between them.
-    form.addEventListener('focusin', update, options);
-    // Opening the dialog focuses the title without a keyboard; the tap that brings
-    // the keyboard up then gives no focus event.
-    form.addEventListener('click', update, options);
-    form.addEventListener('focusout', () => requestAnimationFrame(update), options);
+    panel.addEventListener('touchstart', event => {
+      if (event.touches.length !== 2 || form.dataset.side !== 'back') return;
+      event.preventDefault();
+      pinch = { ...fingers(event), width: form.offsetWidth };
+    }, { ...options, passive: false });
+    panel.addEventListener('touchmove', event => {
+      if (!pinch || event.touches.length !== 2) return;
+      event.preventDefault();
+      const { distance, x, y } = fingers(event);
+      const from = { width: form.offsetWidth, height: form.offsetHeight };
+      const width = pinchedWidth(pinch.width, pinch.distance, distance, panel.clientWidth);
+      setWidth(width);
+      panel.scrollLeft = scrollAround(panel.scrollLeft + pinch.x - x, x, from.width, form.offsetWidth);
+      panel.scrollTop = scrollAround(panel.scrollTop + pinch.y - y, y, from.height, form.offsetHeight);
+      pinch.x = x;
+      pinch.y = y;
+    }, { ...options, passive: false });
+    const release = (event: TouchEvent) => {
+      if (event.touches.length < 2) pinch = undefined;
+    };
+    panel.addEventListener('touchend', release, options);
+    panel.addEventListener('touchcancel', release, options);
+
+    // After the turn button's own handler, which flips data-side.
+    form.querySelector('.postcard-turn')!.addEventListener('click', () => {
+      if (form.dataset.side === 'front') setWidth(null);
+    }, options);
     form.addEventListener('input', schedule, options);
-    document.addEventListener('selectionchange', () => { if (writingField()) schedule(); }, options);
-    // The keyboard slides in after focus and shrinks the visible area.
-    window.visualViewport?.addEventListener('resize', schedule, options);
-    this.writingCleanup = () => {
+    document.addEventListener('selectionchange', schedule, options);
+    // The keyboard changes the visible height; turning the phone changes the width.
+    window.visualViewport?.addEventListener('resize', () => {
+      if (!zoomed()) return;
+      setWidth(Math.max(form.offsetWidth, panel.clientWidth));
+      schedule();
+    }, options);
+    this.zoomCleanup = () => {
       events.abort();
       cancelAnimationFrame(frame);
-      panel.removeAttribute('data-writing');
+      panel.removeAttribute('data-zoomed');
     };
   }
 
@@ -778,8 +814,9 @@ export class UI {
     this.caretCleanup = undefined;
     this.scaleCleanup?.();
     this.scaleCleanup = undefined;
-    this.writingCleanup?.();
-    this.writingCleanup = undefined;
+    this.rescaleText = undefined;
+    this.zoomCleanup?.();
+    this.zoomCleanup = undefined;
     this.libraryReader = undefined;
     this.photo?.dispose();
     this.photo = undefined;
