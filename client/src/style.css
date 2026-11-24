@@ -157,7 +157,7 @@ dialog .postcard-reader p { margin: 0; white-space: pre-wrap; overflow-wrap: bre
   padding: 0; margin: 0; border: 0; border-radius: 0; outline: none; resize: none;
   caret-color: transparent; background: transparent; color: #513e35; line-height: 1; overflow: hidden;
 }
-.postcard-title { top: 15.6627%; height: 12.0482%; font-size: 48px; }
+.postcard-title { top: 15.6627%; height: 12.0482%; font-size: 38px; }
 /* Exactly 8 lines at 32px, the pixel font's own size: a box a fraction of a line short
    held 8 lines in some browsers and 7 in others, and letter widths at other sizes are
    rounded differently from browser to browser. */

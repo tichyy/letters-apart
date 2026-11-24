@@ -25,6 +25,8 @@ export class UI {
   private toastTimer?: number;
   private toastAnimation?: Animation;
   private noticeWorldPosition?: { x: number; y: number };
+  /** Horizontal shift that kept the message on screen when it appeared, in CSS pixels. */
+  private noticeShift?: number;
   private events = new EventTarget();
   private outbox: PostcardOutbox;
   private photo?: PhotoEditor;
@@ -32,6 +34,7 @@ export class UI {
   private updateCompose?: () => void;
   private caretCleanup?: () => void;
   private scaleCleanup?: () => void;
+  private measureContext?: CanvasRenderingContext2D;
   private galleryFromEnd = false;
   private galleryFront = true;
   private galleryIndex = 0;
@@ -160,11 +163,11 @@ export class UI {
     const bounds = this.notice.parentElement!.getBoundingClientRect();
     const halfWidth = this.notice.offsetWidth / 2;
     const height = this.notice.offsetHeight;
-    // World messages leave the screen with their object instead of sticking to
-    // the screen edge as the player walks away.
-    this.notice.style.visibility = x < bounds.left || x > bounds.right ? 'hidden' : '';
-    // Keep the message readable at the edges and within the mobile viewport.
-    this.notice.style.left = `${Math.max(halfWidth + 16, Math.min(bounds.width - halfWidth - 16, x - bounds.left))}px`;
+    const left = x - bounds.left;
+    // Fit the message on screen where it appears, then keep that shift so it stays
+    // with its object and slides off with it as the player walks away.
+    this.noticeShift ??= Math.max(halfWidth + 16, Math.min(bounds.width - halfWidth - 16, left)) - left;
+    this.notice.style.left = `${left + this.noticeShift}px`;
     this.notice.style.top = `${Math.max(height + 16, Math.min(bounds.height - 16, y - bounds.top))}px`;
   }
 
@@ -198,7 +201,7 @@ export class UI {
     const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 200;
     this.toastAnimation?.cancel();
     this.noticeWorldPosition = anchor ? { ...anchor } : undefined;
-    this.notice.style.visibility = '';
+    this.noticeShift = undefined;
     if (!anchor) {
       this.notice.style.left = '';
       this.notice.style.top = '';
@@ -550,25 +553,45 @@ export class UI {
       const index = field.selectionStart;
       const codePoint = field.value.codePointAt(index);
       const character = codePoint === undefined ? '' : String.fromCodePoint(codePoint);
+      // At a line's end, a zero-width space marks the spot: it fits on a full line,
+      // where a visible character would wrap with the word before it onto the next.
+      const atLineEnd = !character || character === '\n';
       const marker = document.createElement('span');
-      marker.textContent = character && character !== '\n' ? character : '\u00a0';
-      mirror.replaceChildren(document.createTextNode(field.value.slice(0, index)), marker,
-        document.createTextNode(field.value.slice(index + character.length)));
+      marker.textContent = atLineEnd ? '\u200b' : character;
+      const before = document.createTextNode(field.value.slice(0, index));
+      mirror.replaceChildren(before, marker, document.createTextNode(field.value.slice(index + character.length)));
       // Measured on screen, where the text side is scaled; placed in its own layout.
       const scale = back.getBoundingClientRect().width / back.offsetWidth || 1;
-      const cell = marker.getBoundingClientRect();
       const origin = mirror.getBoundingClientRect();
+      let cell: { left: number; top: number; width: number } = marker.getBoundingClientRect();
+      const width = atLineEnd ? this.spaceWidth(style) : cell.width / scale;
+      // Spaces typed at the end of the last line hang past its edge, and the spot after
+      // them would wrap below the field: mark it at the end of that last line instead.
+      const previous = field.value.slice(0, index).match(/[^]$/u)?.[0];
+      if ((cell.top - origin.top) / scale + size > field.clientHeight + 1 && previous && previous !== '\n') {
+        const range = document.createRange();
+        range.setStart(before, index - previous.length);
+        range.setEnd(before, index);
+        const rects = range.getClientRects();
+        const last = rects[rects.length - 1];
+        if (last) cell = { left: last.right, top: last.top, width: cell.width };
+      }
+      // After the last letter of a full line the mark starts at the field's edge and
+      // extends past it; pulling it inside would cover that letter.
+      const x = Math.max(0, Math.min((cell.left - origin.left) / scale, field.clientWidth));
       const inset = field instanceof HTMLInputElement ? (field.clientHeight - size) / 2 : 0;
       Object.assign(highlight.style, {
-        left: `${Math.round(field.offsetLeft + (cell.left - origin.left) / scale - field.scrollLeft)}px`,
+        left: `${Math.round(field.offsetLeft + x - field.scrollLeft)}px`,
         top: `${Math.round(field.offsetTop + inset + (cell.top - origin.top) / scale + size * 0.3125 - field.scrollTop)}px`,
-        width: `${Math.max(2, Math.round(cell.width / scale))}px`, height: `${Math.round(size * 0.5)}px`,
+        width: `${Math.max(2, Math.round(width))}px`, height: `${Math.round(size * 0.5)}px`,
       });
       highlight.hidden = false;
     };
-    for (const event of ['input', 'focusin', 'focusout', 'keyup', 'pointerup', 'select', 'scroll']) {
+    for (const event of ['focusin', 'focusout', 'keyup', 'pointerup', 'select', 'scroll']) {
       form.addEventListener(event, update, { capture: true, signal: events.signal });
     }
+    // After the field's own listener, which takes back text that no longer fits.
+    form.addEventListener('input', update, { signal: events.signal });
     form.addEventListener('reset', () => queueMicrotask(update), { signal: events.signal });
     form.addEventListener('compositionstart', () => { composing = true; update(); }, { signal: events.signal });
     form.addEventListener('compositionend', () => { composing = false; update(); }, { signal: events.signal });
@@ -619,6 +642,12 @@ export class UI {
     this.panel.addEventListener('cancel', cancel);
   }
 
+  private spaceWidth(style: CSSStyleDeclaration): number {
+    const context = (this.measureContext ??= document.createElement('canvas').getContext('2d')!);
+    context.font = `${style.fontSize} ${style.fontFamily}`;
+    return context.measureText('\u00a0').width;
+  }
+
   private textOverflows(field: HTMLInputElement | HTMLTextAreaElement): boolean {
     return field.scrollHeight > field.clientHeight + 1 || field.scrollWidth > field.clientWidth + 1;
   }
@@ -656,6 +685,9 @@ export class UI {
     };
     field.addEventListener('input', limit);
     field.addEventListener('compositionend', limit);
+    // A word still being composed (as phone keyboards type) is only checked once it is
+    // done: keep the field on its first lines meanwhile, never scrolled to a 9th.
+    field.addEventListener('scroll', () => { field.scrollTop = field.scrollLeft = 0; });
   }
 
   error(text: string, requestId?: string): void {
