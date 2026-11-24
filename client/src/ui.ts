@@ -1,13 +1,9 @@
-import type { ClientMessage, Postcard, Side, Stamp, WriteRequest } from './protocol';
-import { Connection, randomId } from './connection';
+import type { ClientMessage, Postcard, Side, Stamp } from './protocol';
+import type { Connection } from './connection';
 import { PhotoEditor } from './photo-editor';
+import { PostcardOutbox } from './postcard-outbox';
 import { postcardArt, stampArt } from './art';
 import world from '../../world.json';
-
-interface PendingWrite {
-  side: Side;
-  message: WriteRequest;
-}
 
 // Touch screens have no keyboard shortcuts to show.
 const coarsePointer = () => matchMedia('(any-pointer: coarse)').matches;
@@ -30,9 +26,8 @@ export class UI {
   private toastAnimation?: Animation;
   private noticeWorldPosition?: { x: number; y: number };
   private events = new EventTarget();
-  private submitting = false;
+  private outbox: PostcardOutbox;
   private photo?: PhotoEditor;
-  private pending?: PendingWrite;
   private side?: Side;
   private updateCompose?: () => void;
   private caretCleanup?: () => void;
@@ -40,7 +35,10 @@ export class UI {
   private galleryFront = true;
   private galleryIndex = 0;
   private libraryReader?: (cards: Postcard[], start: number, pages: LibraryPages) => void;
-  private get photoDraftKey(): string { return `letters-draft-photo-${this.side}`; }
+  // The open compose dialog is locked while its postcard waits for the server.
+  private get submitting(): boolean {
+    return this.panel.open && this.panel.dataset.kind === 'compose' && this.outbox.waiting;
+  }
 
   constructor(
     private readonly send: (message: ClientMessage) => boolean,
@@ -48,6 +46,7 @@ export class UI {
     private readonly requestInteraction: (type?: 'interact' | 'gallery') => void,
     private readonly connection: Connection,
   ) {
+    this.outbox = new PostcardOutbox(send);
     const root = document.querySelector<HTMLElement>('#interface')!;
     root.innerHTML = `
       <div id="notice" role="status" aria-live="polite"></div>
@@ -90,7 +89,6 @@ export class UI {
     this.panel.addEventListener('close', () => {
       if (this.panel.open) return;
       this.releasePanel();
-      this.submitting = false;
       this.syncGameplay();
     });
     this.panel.addEventListener('cancel', event => {
@@ -245,11 +243,10 @@ export class UI {
   }
 
   compose(): void {
-    const savedStamp = sessionStorage.getItem('letters-draft-stamp');
-    const stamp = savedStamp === '1' ? 1 : savedStamp === '2' ? 2 : savedStamp === '3' ? 3 : null;
-    const form = this.postcard(sessionStorage.getItem('letters-draft') ?? '', stamp, true);
+    const draft = this.outbox.readDraft();
+    const form = this.postcard(draft.body, draft.stamp, true);
     const title = form.querySelector<HTMLInputElement>('.postcard-title')!;
-    title.value = sessionStorage.getItem('letters-draft-title') ?? '';
+    title.value = draft.title;
     this.fitPostcardText(form);
     const textarea = form.querySelector('textarea')!;
     for (const field of [title, textarea]) this.limitPostcardText(field);
@@ -259,17 +256,15 @@ export class UI {
     const preview = form.querySelector<HTMLElement>('.postcard-stamp')!;
     const update = () => {
       const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
-      sessionStorage.setItem('letters-draft', textarea.value);
-      sessionStorage.setItem('letters-draft-title', title.value);
-      if (selected) {
-        preview.style.backgroundImage = `url('${stampArt[Number(selected.value) as Stamp]}')`;
-        preview.setAttribute('aria-label', `Stamp ${selected.value}`);
+      const stamp = selected ? Number(selected.value) as Stamp : null;
+      this.outbox.saveDraft({ title: title.value, body: textarea.value, stamp });
+      if (stamp) {
+        preview.style.backgroundImage = `url('${stampArt[stamp]}')`;
+        preview.setAttribute('aria-label', `Stamp ${stamp}`);
         preview.hidden = false;
-        sessionStorage.setItem('letters-draft-stamp', selected.value);
       } else {
         preview.hidden = true;
         preview.style.backgroundImage = '';
-        sessionStorage.removeItem('letters-draft-stamp');
       }
       pack.disabled = this.submitting || !photo.ready || !textarea.value.trim() || !selected;
       reset.disabled = this.submitting;
@@ -278,9 +273,8 @@ export class UI {
       photo.locked = this.submitting;
       photo.render();
     };
-    const photo = this.photo = new PhotoEditor(form, this.connection, update, this.photoDraftKey);
+    const photo = this.photo = new PhotoEditor(form, this.connection, update, this.outbox.photoDraftKey);
     this.updateCompose = update;
-    this.submitting = !!this.pending;
     update();
     photo.restore();
     form.oninput = update;
@@ -302,18 +296,15 @@ export class UI {
       event.preventDefault();
       const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
       if (this.submitting || !photo.ready || !textarea.value.trim() || !selected || !this.side) return;
-      const pending: PendingWrite = { side: this.side, message: {
-        type: 'write', requestId: randomId(), title: title.value.trim(), body: textarea.value.trim(),
+      const sent = this.outbox.submit({
+        title: title.value.trim(), body: textarea.value.trim(),
         stamp: Number(selected.value) as Stamp, imageId: photo.photo?.id ?? null,
         crop: photo.photo ? { ...photo.photo.crop } : { x: 0.5, y: 0.5, zoom: 1 },
-      } };
-      if (!this.send(pending.message)) {
+      });
+      if (!sent) {
         this.error('Connection lost. Your draft is saved; try again when connected.');
         return;
       }
-      this.pending = pending;
-      sessionStorage.setItem('letters-pending-write', JSON.stringify(pending));
-      this.submitting = true;
       update();
     };
     if (!matchMedia('(pointer: coarse)').matches) textarea.focus();
@@ -321,24 +312,11 @@ export class UI {
 
   connected(side: Side): void {
     this.side = side;
-    try {
-      const pending = JSON.parse(sessionStorage.getItem('letters-pending-write') ?? 'null') as PendingWrite | null;
-      this.pending = pending?.side === side ? pending : undefined;
-    } catch {
-      this.pending = undefined;
-      sessionStorage.removeItem('letters-pending-write');
-    }
-    if (this.pending) this.send(this.pending.message);
+    this.outbox.resume(side);
   }
 
   written(requestId?: string): void {
-    if (requestId && requestId !== this.pending?.message.requestId) return;
-    this.pending = undefined;
-    sessionStorage.removeItem('letters-pending-write');
-    sessionStorage.removeItem('letters-draft');
-    sessionStorage.removeItem('letters-draft-title');
-    sessionStorage.removeItem('letters-draft-stamp');
-    sessionStorage.removeItem(this.photoDraftKey);
+    if (!this.outbox.settle(requestId)) return;
     if (this.panel.dataset.kind === 'compose') this.panel.close();
     this.toast('Postcard packed. Deliver it to the other mailbox.',
       this.side ? { x: world.desks[this.side], y: 0 } : undefined);
@@ -666,13 +644,9 @@ export class UI {
   }
 
   error(text: string, requestId?: string): void {
-    if (requestId && requestId !== this.pending?.message.requestId) return;
-    if (this.pending && !requestId) { this.toast(text); return; }
-    if (requestId) {
-      this.pending = undefined;
-      sessionStorage.removeItem('letters-pending-write');
-    }
-    this.submitting = false;
+    const outcome = this.outbox.fail(requestId);
+    if (outcome === 'stale') return;
+    if (outcome === 'unrelated') { this.toast(text); return; }
     // The compose dialog's update() recomputes its buttons, photo readiness included.
     this.updateCompose?.();
     const error = this.panel.querySelector('#form-error');
