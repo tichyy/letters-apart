@@ -513,7 +513,11 @@ export class UI {
         reset.title = front ? 'Reset photo side' : 'Reset message side';
       }
       this.photo?.render();
-      if (!front) this.fitPostcardText(form);
+      if (!front) {
+        // The card may have been resized while the text side was hidden.
+        this.rescaleText?.();
+        this.fitPostcardText(form);
+      }
       turn.setAttribute('aria-pressed', String(front));
     };
     return form;
@@ -523,7 +527,10 @@ export class UI {
   private scaleText(form: HTMLFormElement): void {
     const stage = form.querySelector<HTMLElement>('.postcard-stage')!;
     const back = form.querySelector<HTMLElement>('.postcard-back')!;
-    const update = () => stage.style.setProperty('--postcard-scale', String(stage.clientWidth / back.offsetWidth || 1));
+    // A hidden text side has no width to scale from: keep the last scale until it shows.
+    const update = () => {
+      if (back.offsetWidth) stage.style.setProperty('--postcard-scale', String(stage.clientWidth / back.offsetWidth));
+    };
     const resize = new ResizeObserver(update);
     resize.observe(stage);
     update();

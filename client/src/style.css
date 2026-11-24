@@ -247,8 +247,11 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
 }
 /* Center under the paper; the stage also includes the send button to its right. */
 .postcard-stamps { display: flex; justify-content: center; width: 91.509434%; gap: 16px; margin-top: 8px; }
+/* On its own layer: iOS Safari left the stamps' bottom pixel row on screen when it
+   hid them in place (their edges fall between device pixels in the centred dialog). */
+.postcard-stamps { will-change: opacity; }
 /* Reserve the text side's footer space so centering the dialog never moves the card on a flip. */
-.postcard-editor[data-side="front"] .postcard-stamps { visibility: hidden; }
+.postcard-editor[data-side="front"] .postcard-stamps { visibility: hidden; opacity: 0; }
 .postcard-stamps input {
   appearance: none; width: 48px; height: 45px; margin: 0; border: 0; border-radius: 0; background-color: transparent;
   opacity: 0.5; cursor: var(--cursor-hover); pointer-events: auto;
