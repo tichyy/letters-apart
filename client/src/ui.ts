@@ -1,4 +1,4 @@
-import type { Postcard, Side, Stamp, Crop } from './protocol';
+import type { ClientMessage, Postcard, Side, Stamp, WriteRequest } from './protocol';
 import { Connection, randomId } from './connection';
 import { PhotoEditor } from './photo-editor';
 import { postcardArt, stampArt } from './art';
@@ -6,9 +6,11 @@ import world from '../../world.json';
 
 interface PendingWrite {
   side: Side;
-  message: { type: 'write'; requestId: string; title: string; body: string; stamp: number;
-    imageId: string | null; crop: Crop };
+  message: WriteRequest;
 }
+
+// Touch screens have no keyboard shortcuts to show.
+const coarsePointer = () => matchMedia('(any-pointer: coarse)').matches;
 
 interface LibraryPages {
   previous?: () => boolean;
@@ -41,7 +43,7 @@ export class UI {
   private get photoDraftKey(): string { return `letters-draft-photo-${this.side}`; }
 
   constructor(
-    private readonly send: (message: object) => boolean,
+    private readonly send: (message: ClientMessage) => boolean,
     private readonly join: (side: Side) => void,
     private readonly requestInteraction: (type?: 'interact' | 'gallery') => void,
     private readonly connection: Connection,
@@ -76,9 +78,9 @@ export class UI {
     this.notice = root.querySelector('#notice')!;
     root.append(this.panel);
     this.hint.onclick = () => this.interact();
-    this.galleryButton.textContent = matchMedia('(any-pointer: coarse)').matches ? 'Received postcards' : 'F · Received postcards';
+    this.galleryButton.textContent = coarsePointer() ? 'Received postcards' : 'F · Received postcards';
     this.galleryButton.onclick = () => this.openLibrary();
-    this.dropButton.textContent = matchMedia('(any-pointer: coarse)').matches ? 'Hold to drop postcard' : 'Hold Q · Drop postcard';
+    this.dropButton.textContent = coarsePointer() ? 'Hold to drop postcard' : 'Hold Q · Drop postcard';
     this.dropButton.addEventListener('pointerdown', event => {
       if (event.button === 0) this.holdDrop(true);
     });
@@ -87,12 +89,7 @@ export class UI {
     }
     this.panel.addEventListener('close', () => {
       if (this.panel.open) return;
-      this.caretCleanup?.();
-      this.caretCleanup = undefined;
-      this.libraryReader = undefined;
-      this.photo?.dispose();
-      this.photo = undefined;
-      this.updateCompose = undefined;
+      this.releasePanel();
       this.submitting = false;
       this.syncGameplay();
     });
@@ -145,7 +142,7 @@ export class UI {
 
   setHint(text: string): void {
     this.hint.hidden = !text;
-    this.hint.textContent = matchMedia('(any-pointer: coarse)').matches ? text.replace(/^E · /, '') : text;
+    this.hint.textContent = coarsePointer() ? text.replace(/^E · /, '') : text;
   }
 
   setGalleryAvailable(available: boolean): void { this.galleryButton.hidden = !available; }
@@ -307,7 +304,7 @@ export class UI {
       if (this.submitting || !photo.ready || !textarea.value.trim() || !selected || !this.side) return;
       const pending: PendingWrite = { side: this.side, message: {
         type: 'write', requestId: randomId(), title: title.value.trim(), body: textarea.value.trim(),
-        stamp: Number(selected.value), imageId: photo.photo?.id ?? null,
+        stamp: Number(selected.value) as Stamp, imageId: photo.photo?.id ?? null,
         crop: photo.photo ? { ...photo.photo.crop } : { x: 0.5, y: 0.5, zoom: 1 },
       } };
       if (!this.send(pending.message)) {
@@ -676,11 +673,7 @@ export class UI {
       sessionStorage.removeItem('letters-pending-write');
     }
     this.submitting = false;
-    const submit = this.panel.querySelector<HTMLButtonElement>('[type="submit"]');
-    if (submit) submit.disabled = !this.panel.querySelector('textarea')!.value.trim()
-      || !this.panel.querySelector('[name="stamp"]:checked');
-    const reset = this.panel.querySelector<HTMLButtonElement>('[type="reset"]');
-    if (reset) reset.disabled = false;
+    // The compose dialog's update() recomputes its buttons, photo readiness included.
     this.updateCompose?.();
     const error = this.panel.querySelector('#form-error');
     if (this.panel.open && error) error.textContent = text;
@@ -691,13 +684,18 @@ export class UI {
     if (this.submitting) this.toast('Connection interrupted. Your postcard will retry when connected.');
   }
 
-  private open(kind: string, html: string): void {
+  /** Let go of everything the current dialog's content set up. */
+  private releasePanel(): void {
     this.caretCleanup?.();
     this.caretCleanup = undefined;
     this.libraryReader = undefined;
     this.photo?.dispose();
     this.photo = undefined;
     this.updateCompose = undefined;
+  }
+
+  private open(kind: string, html: string): void {
+    this.releasePanel();
     if (this.panel.open) this.panel.close();
     this.panel.dataset.kind = kind;
     this.panel.innerHTML = html;

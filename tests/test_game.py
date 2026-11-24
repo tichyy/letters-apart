@@ -662,3 +662,11 @@ def test_database_uses_wal_and_records_its_schema_version(tmp_path):
     with closing(sqlite3.connect(path)) as db:
         assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("kind", ["teleport", None, 7, ["interact"], {"type": "write"}])
+def test_unknown_message_types_get_an_error_reply(game, kind):
+    assert game.respond("left", {"type": kind}) == {
+        "type": "error",
+        "message": "Unknown action.",
+    }

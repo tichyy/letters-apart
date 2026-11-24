@@ -3,7 +3,7 @@ import { Connection } from './connection';
 import { WorldScene, frameTiming } from './scene';
 import { UI } from './ui';
 import { faviconUrl, fontUrl, preloadArt } from './art';
-import type { Message, Side } from './protocol';
+import type { Message } from './protocol';
 import world from '../../world.json';
 import './style.css';
 
@@ -55,14 +55,15 @@ function receive(message: Message): void {
     case 'error': ui.error(message.message, message.requestId); break;
     case 'mailbox_used': scene.useMailbox(message.side); break;
     case 'delivered':
-      ui.toast(message.sender === connection.side
-        ? 'Delivered. A little piece of you, safely on the other side.'
-        : 'A postcard arrived in your mailbox.',
-      message.sender === connection.side ? { x: world.mailboxes[message.recipient], y: 0 } : undefined);
+      if (message.sender === connection.side) {
+        ui.toast('Delivered. A little piece of you, safely on the other side.', { x: world.mailboxes[message.recipient], y: 0 });
+      } else {
+        ui.toast('A postcard arrived in your mailbox.');
+      }
       break;
   }
 }
 
 const home = new URLSearchParams(location.search).get('player') ?? sessionStorage.getItem('letters-side');
-if (home === 'left' || home === 'right') connection.connect(home as Side);
+if (home === 'left' || home === 'right') connection.connect(home);
 else ui.chooseHome();

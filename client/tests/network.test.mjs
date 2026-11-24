@@ -17,7 +17,7 @@ const Phaser={Scene:class{},Math:{Clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),Linea
 const performance={now:()=>globalThis.networkTestTime};
 class Controls {value=0;direction(){return this.value}jump(){return false}release(){this.value=0}}
 `;
-const code = stubs + await source('movement') + await source('partner-playback') + await source('world-view') + await source('scene');
+const code = stubs + await source('movement') + await source('pixel-grid') + await source('partner-playback') + await source('world-view') + await source('scene');
 const { WorldScene, WorldView, frameTiming } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const dt = 1000 / 60;
 const player = (side, x = world.desks[side], ack = 0) => ({

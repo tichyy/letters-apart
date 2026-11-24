@@ -41,6 +41,28 @@ export interface Player extends Motion {
   unread: number;
 }
 
+export interface WriteRequest {
+  type: 'write';
+  requestId: string;
+  title: string;
+  body: string;
+  stamp: Stamp;
+  imageId: string | null;
+  crop: Crop;
+}
+
+/** Everything the client sends over the game socket, after its 'hello'. */
+export type ClientMessage =
+  | { type: 'input'; inputs: Input[] }
+  // `after`: the last input sent before it, so the server acts where the player stood.
+  | { type: 'interact' | 'gallery' | 'stop'; after: number }
+  // Turning a page of the gallery that is already open.
+  | { type: 'gallery'; page: number }
+  | { type: 'delete'; id: number; page: number }
+  | { type: 'read'; id: number }
+  | { type: 'drop' }
+  | WriteRequest;
+
 export type Message =
   | { type: 'welcome'; side: Side; players: Player[] }
   | { type: 'state'; players: Player[] }

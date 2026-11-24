@@ -6,7 +6,7 @@ import { Viewport, type ViewLayout } from './viewport';
 import { DogFollower } from './dog-follower';
 import { PartnerPlayback } from './partner-playback';
 import { backgroundArt, cursorArt } from './art';
-import { snapFollowerX } from './pixel-grid';
+import { snapFollowerX, snapToGrid } from './pixel-grid';
 // Characters, dog, mailbox and houses in one atlas, packed by scripts/pack_sprites.py.
 import spritesImage from '../../assets/sprites/sprites.png';
 import spritesData from '../../assets/sprites/sprites.json';
@@ -159,13 +159,13 @@ export class WorldView {
     const halfWidth = Math.min(visibleWidth, world.width) / 2;
     const center = Phaser.Math.Clamp(playerX, halfWidth, world.width - halfWidth);
     // Align camera movement to screen pixels.
-    const left = Math.round((center - visibleWidth / 2) * camera.zoom) / camera.zoom;
+    const left = snapToGrid(center - visibleWidth / 2, camera.zoom);
     camera.scrollX = left;
     this.background.setX(left);
     // Cover only the viewport, scrolling each pattern at its own depth.
     const seconds = this.scene.time.now / 1000;
     for (const { layer, speed, drift } of this.scenery) {
-      const offset = Math.round((left * speed + seconds * drift) * camera.zoom) / camera.zoom;
+      const offset = snapToGrid(left * speed + seconds * drift, camera.zoom);
       layer.scroll(left, offset);
     }
     this.soil.scroll(left, left);
@@ -194,7 +194,7 @@ export class WorldView {
         : this.partner.advance(Math.min(delta, 100));
       const sprite = this.sprites.get(player.side)!;
       // Snap drawing to the zoomed pixel grid, keeping movement precise.
-      sprite.setPosition(Math.round(x * zoom) / zoom, Math.round((groundY + y) * zoom) / zoom)
+      sprite.setPosition(snapToGrid(x, zoom), snapToGrid(groundY + y, zoom))
         .setAlpha(player.connected ? 1 : 0.35);
       if (facing) sprite.setFlipX(facing === -1);
       const action = y < 0 ? (vy < 0 ? 'jump' : 'fall') : landingTicks > 0 ? 'land' : moving ? 'run' : 'idle';
@@ -229,7 +229,7 @@ export class WorldView {
     // moving around it would shift it by one pixel back and forth.
     const still = x === this.dogX;
     this.dogX = x;
-    this.dog.setPosition(snapFollowerX(x, owner.x, zoom, still), Math.round((groundY + y + footOffset) * zoom) / zoom)
+    this.dog.setPosition(snapFollowerX(x, owner.x, zoom, still), snapToGrid(groundY + y + footOffset, zoom))
       .setFlipX(flipX).setAlpha(connected ? 1 : 0.35);
   }
 

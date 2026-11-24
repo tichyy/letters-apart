@@ -1,4 +1,4 @@
-import type { Message, Side, UploadedPhoto } from './protocol';
+import type { ClientMessage, Message, Side, UploadedPhoto } from './protocol';
 
 export function randomId(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
@@ -24,7 +24,8 @@ export class Connection {
 
   constructor(
     private readonly receive: (message: Message) => void,
-    private readonly status: (text: string) => void,
+    // Each (re)connection attempt, before the socket opens.
+    private readonly connecting: () => void,
   ) {
     this.token = sessionStorage.getItem('letters-token') ?? randomId();
     sessionStorage.setItem('letters-token', this.token);
@@ -45,7 +46,7 @@ export class Connection {
     clearTimeout(this.retry);
     this.side = side;
     this.ready = false;
-    this.status('Connecting…');
+    this.connecting();
     const previous = this.socket;
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocol}//${location.host}/ws/${side}`);
@@ -86,7 +87,6 @@ export class Connection {
         return;
       }
       if (this.side) {
-        this.status('Reconnecting…');
         // 4000: the server asked for a resync. Do the first one at once, but if it
         // keeps happening (a client bug), back off rather than reconnect in a tight
         // loop. Otherwise back off with jitter so a restarting server isn't hit by
@@ -101,7 +101,7 @@ export class Connection {
     socket.onerror = () => socket.close();
   }
 
-  send(message: object): boolean {
+  send(message: ClientMessage): boolean {
     if (!this.ready || this.socket?.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify(message));
     return true;
