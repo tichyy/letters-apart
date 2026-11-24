@@ -14,6 +14,13 @@ document.head.append(Object.assign(document.createElement('link'), { rel: 'icon'
 // iOS Safari ignores the viewport's user-scalable=no for pinches, so stop its
 // pinch gesture here: once zoomed in a dialog, the game itself cannot zoom out.
 document.addEventListener('gesturestart', event => event.preventDefault());
+// Chrome and Edge send a trackpad pinch as a wheel event with ctrlKey. Phaser already
+// cancels wheel events on the canvas, so without this a pinch zoomed the page only
+// over dialogs. Ctrl +/− and the browser menu still zoom; the photo editor still gets
+// the event and zooms the photo.
+document.addEventListener('wheel', event => {
+  if (event.ctrlKey) event.preventDefault();
+}, { passive: false });
 
 // Font and interface art are ready before anything is shown, so no screen fills in
 // piece by piece the first time it opens.

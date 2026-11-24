@@ -288,8 +288,11 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
   .bottom {
     left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
     bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);
+    /* Side by side, each label wrapping within its own half: stacked, the upper
+       button covered the character at the mailbox. */
+    flex-wrap: nowrap; align-items: flex-end;
   }
-  .interaction { min-height: 48px; max-width: 100%; }
+  .interaction { min-height: 48px; max-width: 100%; min-width: 0; flex: 0 1 auto; }
 }
 
 @media (max-width: 600px) {
