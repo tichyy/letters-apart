@@ -628,8 +628,8 @@ export class UI {
       if (!field.clientWidth) continue;
       field.style.fontSize = '';
       // Keep older, longer postcards readable inside the same fixed area.
-      for (let size = field.classList.contains('postcard-title') ? 6 : 5; this.textOverflows(field) && size > 1; size -= 0.125) {
-        field.style.fontSize = `${size - 0.125}cqw`;
+      for (let size = parseFloat(getComputedStyle(field).fontSize); this.textOverflows(field) && size > 6; size -= 0.75) {
+        field.style.fontSize = `${size - 0.75}px`;
       }
       field.scrollTop = field.scrollLeft = 0;
     }
