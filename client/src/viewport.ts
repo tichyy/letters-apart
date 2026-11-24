@@ -16,19 +16,22 @@ export function canvasSize(cssWidth: number, cssHeight: number, pixelRatio: numb
 }
 
 /**
- * Camera zoom for a full-resolution canvas. The view is chosen as if each canvas
- * pixel covered round(pixelRatio) device pixels, then drawn at that many times the
- * zoom: the visible world and the size of art pixels stay the same on every display.
+ * Camera zoom for a full-resolution canvas, in device pixels per world unit. Phones
+ * draw one CSS pixel per world unit, as round(pixelRatio) device pixels. Larger screens
+ * choose from their device pixels alone, so browser zoom and display scaling resize
+ * the interface but not the world: rounding a 2x display's zoom to a multiple of 2
+ * left a laptop's 1520-pixel-tall window at zoom 2 (760 world units, far away) when
+ * zoom 3 (507 units) was just as crisp.
  */
 export function canvasZoomFor(width: number, height: number, pixelRatio: number): number {
   const pixelScale = Math.max(1, Math.round(pixelRatio));
-  return cameraZoomFor(Math.ceil(width / pixelScale), Math.ceil(height / pixelScale)) * pixelScale;
+  if (Math.ceil(width / pixelScale) <= 600) return pixelScale;
+  return cameraZoomFor(width, height);
 }
 
 /**
- * World zoom for a view of this size, in display pixels rounded to whole device pixels: world
- * units visible = canvas pixels / zoom, whatever the display scaling. Always a whole number:
- * artwork is drawn at 2x, 3x and 6x, and a fractional zoom makes art pixels uneven
+ * World zoom for a view of this size in pixels. Always a whole number: artwork is
+ * drawn at 2x, 3x and 6x, and a fractional zoom makes art pixels uneven
  * (at 1.5x the 3x layers came out 4 and 5 screen pixels wide, and shimmered).
  * Phones keep 1x; larger screens take the largest zoom that still shows 400 world
  * units of height.
