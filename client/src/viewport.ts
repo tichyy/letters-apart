@@ -28,6 +28,15 @@ export function canvasZoomFor(pixelRatio: number, touch: boolean): number {
   return Math.max(1, Math.round((touch ? 1 : 1.5) * pixelRatio));
 }
 
+/**
+ * Size of one pixel of the interface font, in CSS pixels: 2 on touch screens and
+ * about 2.4 elsewhere (40px text on a 2x laptop), rounded to whole device pixels so
+ * the letters stay sharp. Like the world, it follows browser zoom.
+ */
+export function fontPixelFor(pixelRatio: number, touch: boolean): number {
+  return Math.max(1, Math.round((touch ? 2 : 2.4) * pixelRatio)) / pixelRatio;
+}
+
 export class Viewport {
   constructor(private scene: Phaser.Scene, private resize: (layout: ViewLayout) => void) {}
 
@@ -51,6 +60,11 @@ export class Viewport {
       style.setProperty('--viewport-height', `${visual?.height ?? window.innerHeight}px`);
       style.setProperty('--viewport-left', `${visual?.offsetLeft ?? 0}px`);
       style.setProperty('--viewport-top', `${visual?.offsetTop ?? 0}px`);
+
+      // The interface is laid out for 2px font pixels and scaled from there.
+      const fontPixel = fontPixelFor(window.devicePixelRatio || 1, coarse.matches);
+      style.setProperty('--font-pixel', `${fontPixel}px`);
+      style.setProperty('--ui-scale', String(fontPixel / 2));
 
       const bounds = parent.getBoundingClientRect();
       if (!bounds.width || !bounds.height) return;

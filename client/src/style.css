@@ -4,7 +4,10 @@
   --cursor-grab: url('../../assets/ui/hand_grab.png') 5 2, grabbing;
   cursor: var(--cursor-pointer);
   font-family: 'GameFont', monospace;
-  font-size: 32px;
+  /* Set by viewport.ts: font pixels rounded to device pixels, and the scale they give the interface. */
+  --font-pixel: 2px;
+  --ui-scale: 1;
+  font-size: calc(16 * var(--font-pixel));
   color: #fff1d6;
   background: #143f5b;
   font-synthesis: none;
@@ -46,14 +49,14 @@ button:disabled { opacity: 0.6; cursor: var(--cursor-pointer); }
 
 #notice {
   position: absolute; top: 15%; left: 50%; transform: translate(-50%, -100%);
-  width: max-content; max-width: min(420px, calc(100% - 32px)); text-align: center;
+  width: max-content; max-width: min(calc(420px * var(--ui-scale)), calc(100% - 32px)); text-align: center;
   line-height: 1; text-shadow: 2px 2px 0 #132d32;
   opacity: 0;
 }
 #notice:empty { display: none; }
 .bottom {
   position: absolute; bottom: max(25px, env(safe-area-inset-bottom)); left: 20px; right: 20px;
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 12px;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: calc(12px * var(--ui-scale));
 }
 .interaction { text-shadow: 2px 2px 0 #132d32; }
 /* The bar fills while the drop is held and empties at once when it is let go. */
@@ -72,20 +75,20 @@ dialog {
   left: calc(var(--viewport-left, 0px) + var(--viewport-width, 100vw) / 2);
   top: calc(var(--viewport-top, 0px) + var(--viewport-height, 100dvh) / 2);
   transform: translate(-50%, -50%);
-  width: min(520px, calc(var(--viewport-width, 100vw) - 32px));
+  width: min(calc(520px * var(--ui-scale)), calc(var(--viewport-width, 100vw) - 32px));
   max-height: calc(var(--viewport-height, 100dvh) - 32px);
-  overflow-y: auto; padding: 32px; border: 2px solid #a77b54;
+  overflow-y: auto; padding: calc(32px * var(--ui-scale)); border: 2px solid #a77b54;
   background: #f8ecd4; color: #513e35; box-shadow: 7px 7px 0 #312f3066;
 }
 dialog::backdrop { cursor: var(--cursor-pointer); background: #122e3f80; }
-.eyebrow { margin: 0 0 14px; letter-spacing: 2px; color: #98704b; }
-h1 { font-weight: 400; font-size: 48px; margin: 0 0 18px; }
+.eyebrow { margin: 0 0 calc(14px * var(--ui-scale)); letter-spacing: var(--font-pixel); color: #98704b; }
+h1 { font-weight: 400; font-size: calc(24 * var(--font-pixel)); margin: 0 0 calc(18px * var(--ui-scale)); }
 dialog p { line-height: 1; }
 dialog button {
-  padding: 11px 14px; border: 1px solid #8e6247; background: #77503c; color: #fff3dc;
+  padding: calc(11px * var(--ui-scale)) calc(14px * var(--ui-scale)); border: 1px solid #8e6247; background: #77503c; color: #fff3dc;
   box-shadow: 0 2px 0 #573b2d;
 }
-.home-choices { display: flex; gap: 12px; margin-top: 25px; }
+.home-choices { display: flex; gap: calc(12px * var(--ui-scale)); margin-top: calc(25px * var(--ui-scale)); }
 .home-choices button { flex: 1; }
 .small { color: #947862; }
 dialog:is([data-kind="compose"], [data-kind="postcard"]) {
@@ -138,19 +141,19 @@ dialog[data-kind="compose"] .postcard-photo { touch-action: none; cursor: var(--
 .postcard-photo:focus-visible { outline: 3px solid #cf8c48; outline-offset: -4px; }
 .postcard-photo-status {
   position: absolute; top: 100%; left: 0; right: 0;
-  margin: 8px 0 0; text-align: center; color: #fff1d6; font-size: 16px;
+  margin: calc(8px * var(--ui-scale)) 0 0; text-align: center; color: #fff1d6; font-size: calc(8 * var(--font-pixel));
 }
 dialog[data-kind="compose"] .postcard-photo-status { top: auto; bottom: 0; width: 91.509434%; }
 .postcard-photo-status:empty { display: none; }
 /* The received card's text in large type, centered over the visible screen. */
 .postcard-reader {
   position: absolute; z-index: 5; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: min(720px, calc(var(--viewport-width, 100vw) - 32px));
-  max-height: calc(var(--viewport-height, 100dvh) - 32px); overflow-y: auto; padding: 24px;
+  width: min(calc(720px * var(--ui-scale)), calc(var(--viewport-width, 100vw) - 32px));
+  max-height: calc(var(--viewport-height, 100dvh) - 32px); overflow-y: auto; padding: calc(24px * var(--ui-scale));
   border: 2px solid #a77b54; background: #f8ecd4; color: #513e35; box-shadow: 7px 7px 0 #312f3066;
-  font-size: 32px; cursor: var(--cursor-pointer); outline: none;
+  font-size: calc(16 * var(--font-pixel)); cursor: var(--cursor-pointer); outline: none;
 }
-.postcard-reader h2 { margin: 0 0 16px; font: inherit; line-height: 1; color: #98704b; }
+.postcard-reader h2 { margin: 0 0 calc(16px * var(--ui-scale)); font: inherit; line-height: 1; color: #98704b; }
 dialog .postcard-reader p { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
 .postcard-title, .postcard-message {
   position: absolute; left: 7.5472%; width: 38.6792%;
@@ -227,10 +230,10 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
 .postcard-navigation .postcard-next {
   left: 45.2830%; background-image: url('../../assets/ui/button_right1.png'); background-position: 56.1404% 82.3009%;
 }
-/* The pixel font's outlines align cleanly at multiples of 16px. */
+/* The pixel font is 16 font pixels to the em. */
 :is(.interaction, .home-choices button) {
-  padding: 8px 12px; border: 0; background: none; box-shadow: none; color: inherit;
-  font-size: 32px; line-height: 1;
+  padding: calc(8px * var(--ui-scale)) calc(12px * var(--ui-scale)); border: 0; background: none; box-shadow: none; color: inherit;
+  font-size: calc(16 * var(--font-pixel)); line-height: 1;
 }
 .postcard-stamp, .postcard-stamps input {
   background-size: 800% 853.3333%; background-position: 79.4643% 16.8142%;
@@ -284,12 +287,12 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
 }
 
 @media (max-width: 600px) {
-  dialog { padding: 22px; }
-  h1 { font-size: 32px; }
+  dialog { padding: calc(22px * var(--ui-scale)); }
+  h1 { font-size: calc(16 * var(--font-pixel)); }
 }
 
 @media (max-height: 440px) {
-  dialog { padding: 18px 24px; }
-  dialog .eyebrow { margin-bottom: 8px; }
-  h1 { font-size: 32px; margin-bottom: 10px; }
+  dialog { padding: calc(18px * var(--ui-scale)) calc(24px * var(--ui-scale)); }
+  dialog .eyebrow { margin-bottom: calc(8px * var(--ui-scale)); }
+  h1 { font-size: calc(16 * var(--font-pixel)); margin-bottom: calc(10px * var(--ui-scale)); }
 }

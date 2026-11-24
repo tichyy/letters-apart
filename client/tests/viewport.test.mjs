@@ -7,7 +7,7 @@ const source = await readFile(new URL('../src/viewport.ts', import.meta.url), 'u
 const { outputText } = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
 });
-const { canvasSize, canvasZoomFor } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const { canvasSize, canvasZoomFor, fontPixelFor } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 
 const browserZoomLevels = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 const displayScales = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.625, 3];
@@ -61,6 +61,24 @@ test('the world unit is the nearest whole number of device pixels to its target 
       }
     }
   }
+});
+
+test('interface font pixels are whole device pixels and grow with browser zoom', () => {
+  for (const scale of displayScales) {
+    for (const touch of [false, true]) {
+      let previous = 0;
+      for (const zoom of browserZoomLevels) {
+        const ratio = scale * zoom;
+        const devicePixels = fontPixelFor(ratio, touch) * ratio;
+        assert.ok(Math.abs(devicePixels - Math.round(devicePixels)) < 1e-9 && Math.round(devicePixels) >= 1, `${ratio}: ${devicePixels}`);
+        assert.ok(devicePixels >= previous - 1e-9);
+        previous = devicePixels;
+      }
+    }
+  }
+  assert.equal(fontPixelFor(2, false) * 16, 40); // 2x laptop: 40px text, up from 32px
+  assert.equal(fontPixelFor(1, false) * 16, 32); // 1x desktop keeps 32px
+  assert.equal(fontPixelFor(3, true) * 16, 32); // phones keep 32px
 });
 
 test('the canvas has one pixel per device pixel', () => {
