@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Connection } from './connection';
-import { WorldScene, frameTiming } from './scene';
+import { WorldScene } from './scene';
+import { frameTiming } from './local-prediction';
 import { UI } from './ui';
 import { faviconUrl, fontUrl, preloadArt } from './art';
 import type { Message } from './protocol';

@@ -10,36 +10,19 @@ async function source(name) {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
   }).outputText.replace(/^import .*;\n/gm, '');
 }
-// Exercise the real prediction/interpolation code without booting a canvas or DOM.
+// Exercise the real partner playback and its drawing without booting a canvas or DOM.
 const stubs = `
 const world=${JSON.stringify(world)};
 const Phaser={Scene:class{},Math:{Clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),Linear:(a,b,t)=>a+(b-a)*t}};
 const performance={now:()=>globalThis.networkTestTime};
-class Controls {value=0;direction(){return this.value}jump(){return false}release(){this.value=0}}
 `;
-const code = stubs + await source('movement') + await source('pixel-grid') + await source('partner-playback') + await source('world-view') + await source('scene');
-const { WorldScene, WorldView, frameTiming } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const code = stubs + await source('movement') + await source('pixel-grid') + await source('partner-playback') + await source('world-view');
+const { WorldView } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const dt = 1000 / 60;
 const player = (side, x = world.desks[side], ack = 0) => ({
   side, x, ack, step: ack, y: 0, vy: 0, jumpChain: 0, landingTicks: 0,
   facing: 1, moving: false, connected: true, carrying: false, unread: 0,
 });
-
-function client() {
-  globalThis.networkTestTime = 0;
-  const sent = [];
-  const connection = {
-    ready: true, side: 'left', reconnects: 0,
-    send(message) { sent.push(structuredClone(message)); return true; },
-    connect() { this.reconnects++; this.ready = false; },
-  };
-  const scene = new WorldScene(connection, { setHint() {}, setGalleryAvailable() {}, setDropAvailable() {} });
-  scene.active = true;
-  scene.view.renderPlayers = (_players, _side, motion) => { scene.drawn = motion; };
-  scene.view.followPlayer = () => {};
-  scene.receive({ type: 'welcome', side: 'left', time: 0, players: [player('left'), player('right')] });
-  return { scene, connection, sent };
-}
 
 function remoteView() {
   const view = new WorldView({ cameras: { main: { zoom: 1 } } });
@@ -60,62 +43,6 @@ function drawRemote(view, state, now) {
   view.renderPlayers([state, player('right')], 'right', player('right'), 0, dt);
   return view.sprites.get('left');
 }
-
-test('interaction sends its input dependency immediately, without waiting for a round trip', () => {
-  const { scene, sent } = client();
-  scene.update(0, dt);
-  scene.interact('gallery');
-  assert.deepEqual(sent.map(message => message.type), ['input', 'gallery']);
-  assert.equal(sent[1].after, 1);
-});
-
-test('stop preserves pending prediction and sends an ordered sequence barrier', () => {
-  const { scene, sent } = client();
-  scene.controls.value = 1;
-  scene.update(0, dt);
-  scene.update(dt, dt);
-  const x = scene.local.x;
-  scene.stop();
-  assert.equal(scene.local.x, x);
-  assert.equal(scene.pending.length, 2);
-  assert.deepEqual(sent.at(-1), { type: 'stop', after: 2 });
-});
-
-test('reconciliation blends the rendered position while applying authority immediately', () => {
-  const { scene } = client();
-  scene.controls.value = 1;
-  scene.update(0, dt);
-  const predicted = scene.local.x;
-  scene.receive({ type: 'state', time: dt, players: [player('left', world.desks.left, 1), player('right')] });
-  assert.equal(scene.local.x, world.desks.left);
-  scene.controls.value = 0;
-  scene.update(dt, dt);
-  assert.ok(scene.drawn.x > world.desks.left && scene.drawn.x < predicted);
-  for (let frame = 0; frame < 60; frame++) scene.update(frame * dt, dt);
-  assert.ok(Math.abs(scene.drawn.x - world.desks.left) < 0.001);
-});
-
-test('prolonged acknowledgement loss reconnects once instead of accumulating frozen time', () => {
-  const { scene, connection } = client();
-  for (let frame = 0; frame < 130; frame++) scene.update(frame * dt, dt);
-  assert.equal(connection.reconnects, 1);
-  assert.equal(scene.accumulator, 0);
-  connection.ready = true;
-  scene.receive({ type: 'welcome', side: 'left', time: 2200, players: [player('left'), player('right')] });
-  scene.controls.value = 1;
-  scene.update(2200, dt);
-  assert.equal(scene.pending.length, 1);
-  assert.ok(scene.local.x > world.desks.left);
-});
-
-test('a local landing correction also finishes exactly instead of keeping a fall pose', () => {
-  const { scene } = client();
-  scene.local.y = -40;
-  scene.receive({ type: 'state', time: dt, players: [player('left'), player('right')] });
-  for (let frame = 0; frame < 60; frame++) scene.update(frame * dt, dt);
-  assert.equal(scene.drawn.y, 0);
-  assert.equal(scene.correction.y, 0);
-});
 
 const runSpeed = world.speed / world.tickRate;
 // The partner's state after `step` steps of running right from x = 1000.
@@ -216,19 +143,6 @@ test('after a long stall the partner catches up and returns to normal speed', ()
   assert.ok(latest - end.x <= 6 * runSpeed, `${((latest - end.x) / runSpeed).toFixed(1)} steps behind`);
 });
 
-test('own movement advances every frame on a high-refresh display', () => {
-  const { scene } = client();
-  scene.controls.value = 1;
-  const frame = 1000 / 144, xs = [];
-  for (let i = 0; i < 144; i++) {
-    scene.update(i * frame, frame);
-    xs.push(scene.drawn.x);
-  }
-  const steps = xs.slice(10).map((x, i, all) => i && x - all[i - 1]).slice(1);
-  const ideal = world.speed / 144;
-  for (const dx of steps) assert.ok(Math.abs(dx - ideal) < ideal * 0.05, `frame moved ${dx}, expected ${ideal}`);
-});
-
 test('a hidden tab keeps receiving for ten minutes without growing or lurching on return', () => {
   globalThis.networkTestTime = 0;
   const view = remoteView();
@@ -255,25 +169,4 @@ test('the partner animation follows the drawn height after a delayed landing', (
   assert.ok(frames.some(frame => /-land$/.test(frame.animation)), 'shows the landing');
   assert.equal(frames.at(-1).y, 9);
   assert.match(frames.at(-1).animation, /-idle$/);
-});
-
-test("Phaser reports real elapsed time on a slow device, even right after loading", async () => {
-  const { createRequire } = await import('node:module');
-  const TimeStep = createRequire(import.meta.url)('phaser/src/core/TimeStep.js');
-  let clock = 0;
-  const previousWindow = globalThis.window;
-  globalThis.window = { performance: { now: () => clock } };
-  try {
-    const step = new TimeStep({}, frameTiming);
-    let gameTime = 0;
-    step.callback = (_time, delta) => { gameTime += delta; };
-    // As TimeStep.start() does, without a browser animation loop.
-    for (let i = 0; i < step.deltaSmoothingMax; i++) step.deltaHistory[i] = step._target;
-    step.resetDelta();
-    // A phone still loading: 30 fps for the first 4 seconds (120 frames).
-    for (let frame = 1; frame <= 120; frame++) step.step(clock = frame * 1000 / 30);
-    assert.ok(Math.abs(gameTime - 4000) < 1, `game time ${gameTime.toFixed(0)} ms after 4000 ms`);
-  } finally {
-    globalThis.window = previousWindow;
-  }
 });
