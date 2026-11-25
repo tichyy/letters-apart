@@ -187,17 +187,25 @@ dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder
 .postcard-turn, .postcard-pack, .postcard-reset, .postcard-delete {
   position: absolute; width: 14.1509%; height: 18.0723%; background-size: 853.3333% 853.3333%;
 }
+/* Each button's 15px box runs under the card, which is drawn over it: clip the box to
+   the part left showing, so the card isn't clickable there. The pressed frames slide
+   under the card, so the clip hides nothing that would show. The cut is half a pixel
+   under the card's edge, and the other sides 1px outside the box, so the clip's
+   anti-aliased edge never shaves the button's own pixels. */
 .postcard-turn {
   left: 66.9811%; top: 0; background-position: 76.9912% 6.1947%;
   background-image: url('../../assets/ui/button_rotate1.png');
+  clip-path: inset(-1px -1px 36.6667% -1px); /* The card covers its bottom 6 rows. */
 }
 .postcard-pack {
   left: 85.8491%; top: 78.3133%; background-position: 94.6903% 63.7168%;
   background-image: url('../../assets/ui/button_send1.png');
+  clip-path: inset(-1px -1px -1px 36.6667%); /* The card covers its left 6 columns. */
 }
 .postcard-reset, .postcard-delete {
   left: 0; top: 0; background-position: 14.1593% 6.1947%;
   background-image: url('../../assets/ui/button_reset1.png');
+  clip-path: inset(-1px -1px 43.3333% -1px); /* The card covers its bottom 7 rows. */
 }
 .postcard-delete { background-image: url('../../assets/ui/button_delete1.png'); }
 .postcard-delete:disabled { opacity: 1; }

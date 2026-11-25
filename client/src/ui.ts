@@ -380,7 +380,6 @@ export class UI {
       remove.type = 'button';
       remove.className = 'postcard-delete';
       remove.setAttribute('aria-label', 'Delete postcard');
-      remove.title = 'Delete postcard';
       form.querySelector('.postcard-stage')!.append(remove);
       remove.onclick = () => {
         if (!loading && current && pages?.remove(current.id, index)) {
@@ -474,19 +473,19 @@ export class UI {
             <input class="postcard-title" name="title" aria-label="Postcard title"
               maxlength="60" autocomplete="off" ${writing ? 'placeholder="A little title..."' : 'readonly'}>
             <textarea class="postcard-message" name="message" aria-label="Postcard message"
-              maxlength="1000" required ${writing ? 'placeholder="Write a little note..."' : 'readonly'}></textarea>
+              maxlength="1000" ${writing ? 'placeholder="Write a little note..."' : 'readonly'}></textarea>
             <span class="postcard-stamp" role="img" aria-label="Stamp ${stamp}"
               ${stamp ? `style="background-image: url('${stampArt[stamp]}')"` : 'hidden'}></span>
           </div>
           <button type="button" class="postcard-turn" aria-label="Turn postcard over" aria-pressed="false"></button>
-          ${writing ? `<button type="reset" class="postcard-reset" aria-label="Reset message side" title="Reset message side"></button>
-            <button type="submit" class="postcard-pack" aria-label="Put postcard in backpack" title="Put postcard in backpack" disabled></button>` : ''}
+          ${writing ? `<button type="reset" class="postcard-reset" aria-label="Reset message side"></button>
+            <button type="submit" class="postcard-pack" aria-label="Put postcard in backpack" disabled></button>` : ''}
         </div>
         <input class="postcard-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" hidden ${writing ? '' : 'disabled'}>
         <p class="postcard-photo-status" role="status" aria-live="polite" hidden></p>
         ${writing ? `<div class="postcard-stamps" role="group" aria-label="Choose a stamp">
           ${([1, 2, 3] as const).map(value => `<input type="radio" name="stamp" value="${value}"
-            aria-label="Stamp ${value}" required ${value === stamp ? 'checked' : ''}
+            aria-label="Stamp ${value}" ${value === stamp ? 'checked' : ''}
             style="background-image: url('${stampArt[value]}')">`).join('')}
         </div><p id="form-error" role="alert"></p>` : `<div class="postcard-navigation" aria-label="Mailbox navigation">
           <button type="button" class="postcard-previous" aria-label="Previous postcard" disabled></button>
@@ -508,10 +507,7 @@ export class UI {
       const stamps = form.querySelector<HTMLElement>('.postcard-stamps');
       if (stamps) stamps.inert = front;
       const reset = form.querySelector<HTMLButtonElement>('.postcard-reset');
-      if (reset) {
-        reset.setAttribute('aria-label', front ? 'Reset photo side' : 'Reset message side');
-        reset.title = front ? 'Reset photo side' : 'Reset message side';
-      }
+      reset?.setAttribute('aria-label', front ? 'Reset photo side' : 'Reset message side');
       this.photo?.render();
       if (!front) {
         // The card may have been resized while the text side was hidden.
@@ -737,7 +733,6 @@ export class UI {
     };
     const close = () => { reader.hidden = true; };
     for (const field of [title, message] as HTMLElement[]) {
-      field.title = 'Read larger';
       field.addEventListener('click', open);
       field.addEventListener('keydown', event => {
         if (event.key === 'Enter') { event.preventDefault(); open(); }
