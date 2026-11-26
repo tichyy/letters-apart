@@ -415,6 +415,12 @@ class Game:
             or "\r" in title
         ):
             raise ValueError("Keep the title to one line and at most 60 characters.")
+        to, from_ = message.get("to", ""), message.get("from", "")
+        if any(
+            not isinstance(name, str) or len(name.strip()) > 30 or "\n" in name or "\r" in name
+            for name in (to, from_)
+        ):
+            raise ValueError("Keep the names to one line and at most 30 characters.")
         if type(stamp) is not int or stamp not in (1, 2, 3):
             raise ValueError("Choose one of the three stamps.")
         image_id = message.get("imageId")
@@ -436,7 +442,7 @@ class Game:
         owner = session_owner(side, session_token) if session_token else None
         payload_hash = hashlib.sha256(
             json.dumps(
-                [body.strip(), title.strip(), stamp, image_id, crop],
+                [body.strip(), title.strip(), to.strip(), from_.strip(), stamp, image_id, crop],
                 sort_keys=True,
             ).encode()
         ).hexdigest()
@@ -455,6 +461,8 @@ class Game:
             body.strip(),
             stamp,
             title.strip(),
+            to=to.strip(),
+            from_=from_.strip(),
             image_id=image_id,
             crop=(crop["x"], crop["y"], crop["zoom"]),
             owner=owner,
@@ -476,7 +484,7 @@ class Game:
         other = "right" if side == "left" else "left"
         carrying = self.mail[side]["carrying"]
         if self.nearby(side, WORLD["desks"][side]):
-            return None if carrying else {"type": "compose"}
+            return None if carrying else {"type": "compose", **self.store.last_address(side)}
         if self.nearby(side, WORLD["mailboxes"][other]):
             if not carrying:
                 return None

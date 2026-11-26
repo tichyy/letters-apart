@@ -143,6 +143,46 @@ def test_invalid_title_is_not_saved(game, title):
     assert not game.mail["left"]["carrying"]
 
 
+def test_address_survives_delivery_and_restart(game, tmp_path):
+    game.handle(
+        "left",
+        {"type": "write", "body": "Hello", "to": "  Babi ", "from": " Míša  "},
+    )
+    deliver(game, "left")
+    with closing(Store(tmp_path / "postcards.sqlite3")) as store:
+        card = store.inbox("right")[0]
+        assert (card["to"], card["from"]) == ("Babi", "Míša")
+
+
+@pytest.mark.parametrize("name", [None, True, [], "a" * 31, "Two\nlines", "Two\rlines"])
+@pytest.mark.parametrize("field", ["to", "from"])
+def test_invalid_address_is_not_saved(game, field, name):
+    with pytest.raises(ValueError, match="names"):
+        game.handle("left", {"type": "write", "body": "Hello", field: name})
+    assert not game.mail["left"]["carrying"]
+
+
+def test_desk_offers_the_address_from_the_last_postcard(game):
+    game.players["left"].x = WORLD["desks"]["left"]
+    assert game.handle("left", {"type": "interact"}) == {"type": "compose", "to": "", "from": ""}
+    game.handle("left", {"type": "write", "body": "Hi", "to": "Babi", "from": "Míša"})
+    deliver(game, "left")
+    # The partner's postcards don't change what this home writes.
+    game.players["right"].x = WORLD["desks"]["right"]
+    game.handle("right", {"type": "write", "body": "Hi", "to": "Míša", "from": "Babi"})
+    game.players["left"].x = WORLD["desks"]["left"]
+    assert game.handle("left", {"type": "interact"}) == {
+        "type": "compose", "to": "Babi", "from": "Míša",
+    }
+
+
+def test_postcard_is_dated_when_written_not_when_delivered(game):
+    write(game, "left")
+    game.store.db.execute("UPDATE postcards SET created_at = '2026-11-25 22:10:00'")
+    deliver(game, "left")
+    assert game.store.inbox("right")[0]["date"] == "2026-11-25 22:10:00"
+
+
 @pytest.mark.parametrize("stamp", [0, 4, "2", True, None])
 def test_invalid_stamp_is_not_saved(game, stamp):
     with pytest.raises(ValueError, match="three stamps"):
@@ -165,6 +205,7 @@ def test_existing_postcards_get_default_stamp(tmp_path):
         assert card["body"] == "An older postcard."
         assert card["stamp"] == 1
         assert card["title"] == ""
+        assert (card["to"], card["from"]) == ("", "")
 
 
 @pytest.mark.parametrize("body", [None, [], "", " \n ", "a" * 1001])
@@ -661,7 +702,7 @@ def test_database_uses_wal_and_records_its_schema_version(tmp_path):
     Store(path).close()
     with closing(sqlite3.connect(path)) as db:
         assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
 @pytest.mark.parametrize("kind", ["teleport", None, 7, ["interact"], {"type": "write"}])

@@ -13,7 +13,11 @@ ${ts.transpileModule(source, {
 }).outputText.replace(/^import .*;\n/gm, '')}`;
 const { PostcardOutbox } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 
-const card = { title: 'Hi', body: 'Wish you were here', stamp: 2, imageId: null, crop: { x: 0.5, y: 0.5, zoom: 1 } };
+const card = {
+  title: 'Hi', body: 'Wish you were here', stamp: 2, to: 'Babi', from: 'Míša',
+  imageId: null, crop: { x: 0.5, y: 0.5, zoom: 1 },
+};
+const draft = { title: card.title, body: card.body, stamp: card.stamp, to: card.to, from: card.from };
 
 // sessionStorage outlives one outbox: a new outbox on the same storage is a reload.
 function storage() {
@@ -58,11 +62,11 @@ test("another home's packed postcard is not sent from this one", () => {
 test('a postcard the socket refused is not kept as packed, and the draft stays', () => {
   const { box, store } = outbox(storage(), () => false);
   box.resume('left');
-  box.saveDraft({ title: card.title, body: card.body, stamp: card.stamp });
+  box.saveDraft(draft);
   assert.equal(box.submit(card), false);
   assert.equal(box.waiting, false);
   assert.equal(store.getItem('letters-pending-write'), null);
-  assert.deepEqual(box.readDraft(), { title: card.title, body: card.body, stamp: card.stamp });
+  assert.deepEqual(box.readDraft(), draft);
 });
 
 test('a postcard keeps waiting while every reconnect fails to reach the server', () => {
@@ -89,7 +93,7 @@ test('a postcard keeps waiting while every reconnect fails to reach the server',
 test("the server's answer settles only the request it names", () => {
   const { box, store } = outbox();
   box.resume('left');
-  box.saveDraft({ title: 'Hi', body: 'Body', stamp: 1 });
+  box.saveDraft(draft);
   store.setItem(box.photoDraftKey, '{"id":"x"}');
   box.submit(card);
   const ownId = store.getItem('letters-pending-write') && JSON.parse(store.getItem('letters-pending-write')).message.requestId;
@@ -99,21 +103,22 @@ test("the server's answer settles only the request it names", () => {
   assert.equal(box.waiting, false);
   // The draft it was written from, photo included, is gone; nothing is sent on reconnect.
   assert.deepEqual([...store.values.keys()], []);
-  assert.deepEqual(box.readDraft(), { title: '', body: '', stamp: null });
+  // Names included: the desk offers the sent card's names for the next one.
+  assert.deepEqual(box.readDraft(), { title: '', body: '', stamp: null, to: null, from: null });
 });
 
 test('errors: stale answers are ignored, a rejection of ours drops it but keeps the draft', () => {
   const { box, sent, store } = outbox();
   box.resume('left');
   assert.equal(box.fail(), 'final', 'nothing waiting: show the error');
-  box.saveDraft({ title: 'Hi', body: 'Body', stamp: 3 });
+  box.saveDraft(draft);
   box.submit(card);
   const ownId = sent.at(-1).requestId;
   assert.equal(box.fail('f'.repeat(32)), 'stale');
   assert.equal(box.waiting, true);
   assert.equal(box.fail(ownId), 'final');
   assert.equal(box.waiting, false);
-  assert.deepEqual(box.readDraft(), { title: 'Hi', body: 'Body', stamp: 3 });
+  assert.deepEqual(box.readDraft(), draft);
   // A late duplicate of the same rejection no longer matches anything.
   assert.equal(box.fail(ownId), 'stale');
   const reloaded = outbox(store);
@@ -133,9 +138,12 @@ test('a corrupt saved postcard is discarded instead of breaking the connection',
 
 test('drafts round-trip, and an unknown saved stamp reads as none', () => {
   const { box, store } = outbox();
-  box.saveDraft({ title: 'T', body: 'B', stamp: 2 });
-  assert.deepEqual(box.readDraft(), { title: 'T', body: 'B', stamp: 2 });
-  box.saveDraft({ title: 'T', body: 'B', stamp: null });
+  box.saveDraft(draft);
+  assert.deepEqual(box.readDraft(), draft);
+  // Names cleared on purpose stay cleared, unlike names never saved (null).
+  box.saveDraft({ ...draft, to: '', from: '' });
+  assert.deepEqual(box.readDraft(), { ...draft, to: '', from: '' });
+  box.saveDraft({ ...draft, stamp: null });
   assert.equal(store.getItem('letters-draft-stamp'), null);
   store.setItem('letters-draft-stamp', '7');
   assert.equal(box.readDraft().stamp, null);

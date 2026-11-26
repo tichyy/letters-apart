@@ -8,6 +8,8 @@ import world from '../../world.json';
 
 // Touch screens have no keyboard shortcuts to show.
 const coarsePointer = () => matchMedia('(any-pointer: coarse)').matches;
+/** A date as it is written on the card, in the viewer's time zone: 26. 11. 2026. */
+const postcardDate = (date: Date) => `${date.getDate()}. ${date.getMonth() + 1}. ${date.getFullYear()}`;
 
 interface LibraryPages {
   previous?: () => boolean;
@@ -250,14 +252,20 @@ export class UI {
     };
   }
 
-  compose(): void {
+  compose(address: { to: string; from: string }): void {
     const draft = this.outbox.readDraft();
     const form = this.postcard(draft.body, draft.stamp, true);
     const title = form.querySelector<HTMLInputElement>('.postcard-title')!;
+    const to = form.querySelector<HTMLInputElement>('[name="to"]')!;
+    const from = form.querySelector<HTMLInputElement>('[name="from"]')!;
     title.value = draft.title;
+    to.value = draft.to ?? address.to;
+    from.value = draft.from ?? address.from;
+    form.querySelector('.postcard-date')!.textContent = postcardDate(new Date());
     this.fitPostcardText(form);
     const textarea = form.querySelector('textarea')!;
-    for (const field of [title, textarea]) this.limitPostcardText(field);
+    const fields = [title, textarea, to, from];
+    for (const field of fields) this.limitPostcardText(field);
     this.trackInsertion(form);
     this.pinchToZoom(form);
     const pack = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
@@ -266,7 +274,7 @@ export class UI {
     const update = () => {
       const selected = form.querySelector<HTMLInputElement>('[name="stamp"]:checked');
       const stamp = selected ? Number(selected.value) as Stamp : null;
-      this.outbox.saveDraft({ title: title.value, body: textarea.value, stamp });
+      this.outbox.saveDraft({ title: title.value, body: textarea.value, stamp, to: to.value, from: from.value });
       if (stamp) {
         preview.style.backgroundImage = `url('${stampArt[stamp]}')`;
         preview.setAttribute('aria-label', `Stamp ${stamp}`);
@@ -277,7 +285,7 @@ export class UI {
       }
       pack.disabled = this.submitting || !photo.ready || !textarea.value.trim() || !selected;
       reset.disabled = this.submitting;
-      title.readOnly = textarea.readOnly = this.submitting;
+      for (const field of fields) field.readOnly = this.submitting;
       for (const input of form.querySelectorAll<HTMLInputElement>('[name="stamp"]')) input.disabled = this.submitting;
       photo.locked = this.submitting;
       photo.render();
@@ -307,6 +315,7 @@ export class UI {
       if (this.submitting || !photo.ready || !textarea.value.trim() || !selected || !this.side) return;
       const sent = this.outbox.submit({
         title: title.value.trim(), body: textarea.value.trim(),
+        to: to.value.trim(), from: from.value.trim(),
         stamp: Number(selected.value) as Stamp, imageId: photo.photo?.id ?? null,
         crop: photo.photo ? { ...photo.photo.crop } : { x: 0.5, y: 0.5, zoom: 1 },
       });
@@ -423,6 +432,9 @@ export class UI {
       form.classList.add('has-card');
       form.querySelector<HTMLInputElement>('.postcard-title')!.value = card.title;
       form.querySelector('textarea')!.value = card.body;
+      form.querySelector<HTMLInputElement>('[name="to"]')!.value = card.to;
+      form.querySelector<HTMLInputElement>('[name="from"]')!.value = card.from;
+      form.querySelector('.postcard-date')!.textContent = postcardDate(new Date(`${card.date.replace(' ', 'T')}Z`));
       this.fitPostcardText(form);
       const stamp = form.querySelector<HTMLElement>('.postcard-stamp')!;
       stamp.style.backgroundImage = `url('${stampArt[card.stamp]}')`;
@@ -474,6 +486,9 @@ export class UI {
               maxlength="60" autocomplete="off" ${writing ? 'placeholder="A little title..."' : 'readonly'}>
             <textarea class="postcard-message" name="message" aria-label="Postcard message"
               maxlength="1000" ${writing ? 'placeholder="Write a little note..."' : 'readonly'}></textarea>
+            <label class="postcard-address postcard-to">To:<input name="to" maxlength="30" autocomplete="off" ${writing ? 'placeholder="{recipient}"' : 'readonly'}></label>
+            <label class="postcard-address postcard-from">From:<input name="from" maxlength="30" autocomplete="off" ${writing ? 'placeholder="{sender}"' : 'readonly'}></label>
+            <span class="postcard-address postcard-date"></span>
             <span class="postcard-stamp" role="img" aria-label="Stamp ${stamp}"
               ${stamp ? `style="background-image: url('${stampArt[stamp]}')"` : 'hidden'}></span>
           </div>
@@ -667,8 +682,13 @@ export class UI {
       const before = document.createTextNode(field.value.slice(0, index));
       mirror.replaceChildren(before, marker, document.createTextNode(field.value.slice(index + character.length)));
       // Measured on screen, where the text side is scaled; placed in its own layout.
-      const scale = back.getBoundingClientRect().width / back.offsetWidth || 1;
+      const side = back.getBoundingClientRect();
+      const scale = side.width / back.offsetWidth || 1;
       const origin = mirror.getBoundingClientRect();
+      // Relative to the text side, not the offset parent: a name field sits in its label.
+      const box = field.getBoundingClientRect();
+      const fieldLeft = (box.left - side.left) / scale;
+      const fieldTop = (box.top - side.top) / scale;
       let cell: { left: number; top: number; width: number } = marker.getBoundingClientRect();
       const width = atLineEnd ? this.spaceWidth(style) : cell.width / scale;
       // Spaces typed at the end of the last line hang past its edge, and the spot after
@@ -687,8 +707,8 @@ export class UI {
       const x = Math.max(0, Math.min((cell.left - origin.left) / scale, field.clientWidth));
       const inset = field instanceof HTMLInputElement ? (field.clientHeight - size) / 2 : 0;
       Object.assign(highlight.style, {
-        left: `${Math.round(field.offsetLeft + x - field.scrollLeft)}px`,
-        top: `${Math.round(field.offsetTop + inset + (cell.top - origin.top) / scale + size * 0.3125 - field.scrollTop)}px`,
+        left: `${Math.round(fieldLeft + x - field.scrollLeft)}px`,
+        top: `${Math.round(fieldTop + inset + (cell.top - origin.top) / scale + size * 0.3125 - field.scrollTop)}px`,
         width: `${Math.max(2, Math.round(width))}px`, height: `${Math.round(size * 0.5)}px`,
       });
       highlight.hidden = false;
@@ -758,7 +778,7 @@ export class UI {
   }
 
   private fitPostcardText(form: HTMLFormElement): void {
-    for (const field of form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.postcard-title, .postcard-message')) {
+    for (const field of form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.postcard-back :is(input, textarea)')) {
       if (!field.clientWidth) continue;
       field.style.fontSize = '';
       // Keep older, longer postcards readable inside the same fixed area.

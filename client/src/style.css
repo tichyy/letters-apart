@@ -158,19 +158,30 @@ dialog[data-kind="compose"] .postcard-photo-status { top: auto; bottom: 0; width
 }
 .postcard-reader h2 { margin: 0 0 calc(16px * var(--ui-scale)); font: inherit; line-height: 1; color: #98704b; }
 dialog .postcard-reader p { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
-.postcard-title, .postcard-message {
-  position: absolute; left: 7.5472%; width: 38.6792%;
+.postcard-back :is(input, textarea) {
   padding: 0; margin: 0; border: 0; border-radius: 0; outline: none; resize: none;
   caret-color: transparent; background: transparent; color: #513e35; line-height: 1; overflow: hidden;
 }
+.postcard-title, .postcard-message { position: absolute; left: 7.5472%; width: 38.6792%; }
 .postcard-title { top: 15.6627%; height: 12.0482%; font-size: 38px; }
 /* Exactly 8 lines at 32px, the pixel font's own size: a box a fraction of a line short
    held 8 lines in some browsers and 7 in others, and letter widths at other sizes are
    rounded differently from browser to browser. */
 .postcard-message { top: 38.5542%; height: 256px; font-size: 32px; }
-.postcard-title:focus-visible, .postcard-message:focus-visible { outline: none; }
+/* Written on the address lines (source y=50, 60 and 70, x=77..103) like handwriting:
+   one line of the font from x=80, its baseline one source pixel above the line. What
+   the card prints (the labels and the date) is lighter than what was written. */
+.postcard-address {
+  position: absolute; left: 60.3774%; width: 22.6415%; height: 32px;
+  display: flex; align-items: center; gap: 8px; font-size: 32px; line-height: 1; color: #98704b;
+}
+.postcard-address input { flex: 1; min-width: 0; height: 100%; }
+.postcard-to { top: 45.8635%; }
+.postcard-from { top: 57.9116%; }
+.postcard-date { top: 69.9598%; }
+.postcard-back :is(input, textarea):focus-visible { outline: none; }
 dialog[data-kind="postcard"] :is(.postcard-title, .postcard-message) { caret-color: transparent; cursor: var(--cursor-hover); }
-dialog[data-kind="compose"] :is(.postcard-title, .postcard-message)::placeholder {
+dialog[data-kind="compose"] .postcard-back :is(input, textarea)::placeholder {
   color: #d0bda1; opacity: 1;
 }
 .postcard-insertion {

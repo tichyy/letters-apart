@@ -1,7 +1,8 @@
 import { randomId } from './connection';
 import type { ClientMessage, Side, Stamp, WriteRequest } from './protocol';
 
-export interface Draft { title: string; body: string; stamp: Stamp | null }
+// A name is null until this draft saves one: the desk then offers the last card's.
+export interface Draft { title: string; body: string; stamp: Stamp | null; to: string | null; from: string | null }
 export type Postcard = Omit<WriteRequest, 'type' | 'requestId'>;
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 interface PendingWrite { side: Side; message: WriteRequest }
@@ -11,6 +12,8 @@ const keys = {
   body: 'letters-draft',
   title: 'letters-draft-title',
   stamp: 'letters-draft-stamp',
+  to: 'letters-draft-to',
+  from: 'letters-draft-from',
 };
 
 /**
@@ -60,7 +63,7 @@ export class PostcardOutbox {
   settle(requestId?: string): boolean {
     if (requestId && requestId !== this.pending?.message.requestId) return false;
     this.pending = undefined;
-    for (const key of [keys.pending, keys.body, keys.title, keys.stamp, this.photoDraftKey]) {
+    for (const key of [...Object.values(keys), this.photoDraftKey]) {
       this.storage.removeItem(key);
     }
     return true;
@@ -86,12 +89,16 @@ export class PostcardOutbox {
       title: this.storage.getItem(keys.title) ?? '',
       body: this.storage.getItem(keys.body) ?? '',
       stamp: stamp === '1' ? 1 : stamp === '2' ? 2 : stamp === '3' ? 3 : null,
+      to: this.storage.getItem(keys.to),
+      from: this.storage.getItem(keys.from),
     };
   }
 
-  saveDraft({ title, body, stamp }: Draft): void {
+  saveDraft({ title, body, stamp, to, from }: Draft): void {
     this.storage.setItem(keys.body, body);
     this.storage.setItem(keys.title, title);
+    if (to !== null) this.storage.setItem(keys.to, to);
+    if (from !== null) this.storage.setItem(keys.from, from);
     if (stamp) this.storage.setItem(keys.stamp, String(stamp));
     else this.storage.removeItem(keys.stamp);
   }

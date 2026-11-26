@@ -10,6 +10,9 @@ export interface Postcard {
   id: number;
   title: string;
   body: string;
+  to: string;
+  from: string;
+  // When it was written: UTC, as 'YYYY-MM-DD HH:MM:SS'.
   date: string;
   stamp: Stamp;
   image: Photo | null;
@@ -47,6 +50,8 @@ export interface WriteRequest {
   title: string;
   body: string;
   stamp: Stamp;
+  to: string;
+  from: string;
   imageId: string | null;
   crop: Crop;
 }
@@ -66,7 +71,8 @@ export type ClientMessage =
 export type Message =
   | { type: 'welcome'; side: Side; players: Player[] }
   | { type: 'state'; players: Player[] }
-  | { type: 'compose' }
+  // The names on this home's last postcard, to start the next one with.
+  | { type: 'compose'; to: string; from: string }
   | { type: 'written'; requestId?: string }
   | { type: 'dropped' }
   | { type: 'mailbox'; postcards: Postcard[] }

@@ -33,6 +33,11 @@ class Store:
             self.db.execute("""CREATE UNIQUE INDEX one_carried_postcard ON postcards(sender)
                                WHERE delivered_at IS NULL AND deleted_at IS NULL""")
             self.db.execute("PRAGMA user_version = 2")
+        if version < 3:
+            columns = {row["name"] for row in self.db.execute("PRAGMA table_info(postcards)")}
+            for column in {"to_name", "from_name"} - columns:
+                self.db.execute(f"ALTER TABLE postcards ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+            self.db.execute("PRAGMA user_version = 3")
         self.db.commit()
 
     def _migrate_to_v1(self) -> None:
@@ -125,6 +130,8 @@ class Store:
         stamp: int = 1,
         title: str = "",
         *,
+        to: str = "",
+        from_: str = "",
         image_id: str | None = None,
         crop: tuple = (0.5, 0.5, 1),
         owner: str | None = None,
@@ -143,14 +150,16 @@ class Store:
                         "That photo is no longer available. Please choose it again."
                     )
             self.db.execute(
-                """INSERT INTO postcards(sender, body, stamp, title, image_id,
+                """INSERT INTO postcards(sender, body, stamp, title, to_name, from_name, image_id,
                    photo_x, photo_y, photo_zoom, request_owner, request_id, payload_hash)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     side,
                     body,
                     stamp,
                     title,
+                    to,
+                    from_,
                     image_id,
                     *crop,
                     owner,
@@ -162,6 +171,15 @@ class Store:
                 self.db.execute(
                     "UPDATE images SET expires_at = NULL WHERE id = ?", (image_id,)
                 )
+
+    def last_address(self, side: str) -> dict:
+        """The To and From of the last postcard this home wrote, to start the next one."""
+        row = self.db.execute(
+            """SELECT to_name AS "to", from_name AS "from" FROM postcards
+               WHERE sender = ? ORDER BY id DESC LIMIT 1""",
+            (side,),
+        ).fetchone()
+        return dict(row) if row else {"to": "", "from": ""}
 
     def deliver(self, side: str) -> None:
         with self.db:
@@ -191,7 +209,8 @@ class Store:
         self, side: str, *, include_read: bool = False, limit: int = -1, offset: int = 0
     ) -> list[dict]:
         rows = self.db.execute(
-            f"""SELECT p.id, title, body, delivered_at AS date, stamp,
+            f"""SELECT p.id, title, body, to_name AS "to", from_name AS "from",
+                      created_at AS date, stamp,
                       image_id, i.width, i.height, photo_x, photo_y, photo_zoom
                FROM postcards p LEFT JOIN images i ON p.image_id = i.id
                WHERE p.sender != ? AND delivered_at IS NOT NULL AND deleted_at IS NULL
@@ -201,7 +220,10 @@ class Store:
         ).fetchall()
         cards = []
         for row in rows:
-            card = {key: row[key] for key in ("id", "title", "body", "date", "stamp")}
+            card = {
+                key: row[key]
+                for key in ("id", "title", "body", "to", "from", "date", "stamp")
+            }
             card["image"] = (
                 None
                 if not row["image_id"]

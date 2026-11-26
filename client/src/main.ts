@@ -53,7 +53,7 @@ function receive(message: Message): void {
   scene.receive(message);
   switch (message.type) {
     case 'welcome': ui.connected(message.side); break;
-    case 'compose': ui.compose(); break;
+    case 'compose': ui.compose(message); break;
     case 'written': ui.written(message.requestId); break;
     case 'dropped': ui.toast('Postcard dropped. Your bag is empty again.'); break;
     case 'mailbox': ui.read(message.postcards); break;
