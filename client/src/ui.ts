@@ -1,5 +1,6 @@
 import type { ClientMessage, Postcard, Side, Stamp } from './protocol';
 import type { Connection } from './connection';
+import { ChatUI } from './chat-ui';
 import { PhotoEditor } from './photo-editor';
 import { PostcardOutbox } from './postcard-outbox';
 import { pinchedWidth, scrollAround } from './card-zoom';
@@ -19,6 +20,7 @@ interface LibraryPages {
 
 export class UI {
   readonly gameplay: HTMLElement;
+  readonly chat: ChatUI;
   private panel = document.createElement('dialog');
   private hint: HTMLButtonElement;
   private galleryButton: HTMLButtonElement;
@@ -75,6 +77,7 @@ export class UI {
               <span class="control-art" aria-hidden="true"></span>
             </button>
           </div>
+          <button type="button" id="chat-button" class="interaction">chat</button>
           <button type="button" data-control="jump" aria-label="Jump">
             <span class="control-art" aria-hidden="true"></span>
           </button>
@@ -85,7 +88,14 @@ export class UI {
     this.galleryButton = root.querySelector('#gallery')!;
     this.dropButton = root.querySelector('#drop')!;
     this.notice = root.querySelector('#notice')!;
+    this.chat = new ChatUI(root, send, () => this.events.dispatchEvent(new Event('capturechange')), coarsePointer);
     root.append(this.panel);
+    const chatButton = root.querySelector<HTMLButtonElement>('#chat-button')!;
+    // Keep the chat field focused through the tap, so the button can close it too.
+    chatButton.addEventListener('pointerdown', event => event.preventDefault());
+    chatButton.onclick = () => this.chat.toggle();
+    // The game canvas takes no focus, so tapping it wouldn't end typing by itself.
+    document.getElementById('game')?.addEventListener('pointerdown', () => this.chat.close());
     this.hint.onclick = () => this.interact();
     this.galleryButton.textContent = coarsePointer() ? 'Received postcards' : 'F · Received postcards';
     this.galleryButton.onclick = () => this.openLibrary();
@@ -111,7 +121,11 @@ export class UI {
     });
   }
 
+  /** A dialog is open: the game behind it is hidden. */
   get blocked(): boolean { return this.panel.open; }
+
+  /** The keyboard (or the screen) belongs to a dialog or the chat, not the game. */
+  get captured(): boolean { return this.panel.open || this.chat.open; }
 
   /** The world is built: show it and its controls together. */
   revealWorld(): void {
@@ -138,14 +152,16 @@ export class UI {
     }, Math.max(0, leap - lead - played));
   }
 
-  onDialogChange(listener: () => void): () => void {
-    this.events.addEventListener('dialogchange', listener);
-    return () => this.events.removeEventListener('dialogchange', listener);
+  /** Called when a dialog or the chat opens or closes (see `captured`). */
+  onCaptureChange(listener: () => void): () => void {
+    this.events.addEventListener('capturechange', listener);
+    return () => this.events.removeEventListener('capturechange', listener);
   }
 
   private syncGameplay(): void {
+    if (this.blocked) this.chat.close();
     this.gameplay.hidden = this.blocked;
-    this.events.dispatchEvent(new Event('dialogchange'));
+    this.events.dispatchEvent(new Event('capturechange'));
   }
 
   setHint(text: string): void {
@@ -178,7 +194,7 @@ export class UI {
   }
 
   openLibrary(): void {
-    if (this.blocked || this.galleryButton.hidden) return;
+    if (this.captured || this.galleryButton.hidden) return;
     this.galleryFromEnd = false;
     this.galleryFront = true;
     this.galleryIndex = 0;
@@ -186,13 +202,13 @@ export class UI {
   }
 
   interact(): void {
-    if (!this.blocked) this.requestInteraction();
+    if (!this.captured) this.requestInteraction();
   }
 
   /** Dropping discards the card, so it takes a deliberate one-second hold. */
   holdDrop(held: boolean): void {
     clearTimeout(this.dropTimer);
-    const holding = held && !this.blocked && !this.dropButton.hidden;
+    const holding = held && !this.captured && !this.dropButton.hidden;
     this.dropButton.toggleAttribute('data-holding', holding);
     if (!holding) return;
     this.dropTimer = window.setTimeout(() => {
@@ -330,6 +346,7 @@ export class UI {
 
   connected(side: Side): void {
     this.side = side;
+    this.chat.connected(side);
     this.outbox.resume(side);
   }
 
@@ -816,6 +833,11 @@ export class UI {
   }
 
   error(text: string, requestId?: string): void {
+    // A refused chat line: the chat takes it back out of the bubble.
+    if (this.chat.fail(requestId)) {
+      this.toast(text);
+      return;
+    }
     const outcome = this.outbox.fail(requestId);
     if (outcome === 'stale') return;
     if (outcome === 'unrelated') { this.toast(text); return; }

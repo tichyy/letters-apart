@@ -1,0 +1,10 @@
+{
+  "maxLength": 100,
+  "lines": 3,
+  "lifetime": {
+    "base": 4000,
+    "perCharacter": 60,
+    "max": 10000
+  },
+  "characters": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~¡¢£¤¥¦§¨©ª«¬¯°±²³´µ¶·¸¹º»¼½¾¿ÁÉÍÓ×ÚÝáéíó÷úýČčĎďĚěŇňŘřŠšŤťŮůŽžˇ€"
+}

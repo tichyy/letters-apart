@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
 from .access import SESSION_SIDE, Access, AccessMiddleware
-from .game import SIDES, Game, Peer
+from .game import QUIET, SIDES, Game, Peer
 from .image_routes import ImageService
 from .image_routes import router as image_router
 from .images import ImageStorage, LocalImageStorage
@@ -137,6 +137,7 @@ def create_app(
                 "players": game.snapshot()["players"],
             }
         )
+        peer.send(game.chat.sync())
         writer = asyncio.create_task(peer.write())
 
         async def receive() -> None:
@@ -154,9 +155,11 @@ def create_app(
                 if not isinstance(message, dict):
                     peer.send({"type": "error", "message": "Invalid message."})
                     continue
-                # Movement is bounded by its own sequence and queue checks; everything
-                # else may touch the database on the game's thread, so it is budgeted.
-                if message.get("type") != "input" and not peer.allow():
+                # Everything but movement may touch the database on the game's
+                # thread, so it is budgeted (Peer.allow).
+                if not peer.allow(message.get("type")):
+                    if message.get("type") in QUIET:
+                        continue
                     response = {"type": "error", "message": "Slow down a little."}
                     if isinstance(message.get("requestId"), str):
                         response["requestId"] = message["requestId"]

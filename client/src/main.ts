@@ -4,6 +4,7 @@ import { WorldScene } from './scene';
 import { frameTiming } from './local-prediction';
 import { UI } from './ui';
 import { faviconUrl, fontUrl, preloadArt } from './art';
+import { prepareBubbleArt } from './bubble-art';
 import type { Message } from './protocol';
 import world from '../../world.json';
 import './style.css';
@@ -30,6 +31,7 @@ await Promise.all([
     .then(font => document.fonts.add(font))
     .catch(error => console.warn('Font failed to load', error)),
   preloadArt(),
+  prepareBubbleArt().catch(error => console.warn('Speech bubbles failed to load', error)),
 ]);
 
 const connection = new Connection(receive, () => ui.disconnected());
@@ -61,6 +63,7 @@ function receive(message: Message): void {
     case 'occupied': ui.chooseHome(true); break;
     case 'replaced': ui.replaced(message.side); break;
     case 'error': ui.error(message.message, message.requestId); break;
+    case 'chat': case 'said': case 'draft': ui.chat.receive(message); break;
     case 'mailbox_used': scene.useMailbox(message.side); break;
     case 'delivered':
       if (message.sender === connection.side) {

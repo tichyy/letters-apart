@@ -10,7 +10,7 @@ from fastapi import WebSocket
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from conftest import join
+from conftest import join, receive_type
 from server.app import create_app
 from server.game import WORLD, Game, Peer
 from server.store import Store
@@ -598,12 +598,6 @@ def test_held_jump_repeats_after_landing_and_caps_speed_boost(game, side, direct
     )
 
 
-def receive_type(socket, kind):
-    for _ in range(120):
-        message = socket.receive_json()
-        if message["type"] == kind:
-            return message
-    raise AssertionError(f"No {kind} message received")
 
 
 def test_two_players_share_state_and_reconnect(tmp_path):

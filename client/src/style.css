@@ -13,6 +13,8 @@
   font-synthesis: none;
   font-kerning: none;
   color-scheme: light;
+  /* The text cursor's mark, on the postcard and in chat bubbles. */
+  --insertion: #79573518;
 }
 
 * { box-sizing: border-box; }
@@ -67,6 +69,35 @@ button:disabled { opacity: 0.6; cursor: var(--cursor-pointer); }
 }
 #drop[data-holding]::after { width: calc(100% - 24px); transition: width 1s linear; }
 .touch-controls { display: none; }
+
+/* Speech bubbles, from assets/player/speech_bubbles.png: bubble-art.ts paints each
+   one, tail and all, into its canvas. The sheet's lines are 3 of its pixels thick:
+   drawn one font pixel thick, they match the letters. chat-ui.ts places each bubble
+   so its tail's tip is just over a head, and opens it to the side with room. */
+#chat { position: absolute; inset: 0; pointer-events: none; }
+.chat-bubble {
+  position: absolute;
+  width: max-content; max-width: min(calc(120 * var(--font-pixel)), calc(100% - 16px));
+  /* Two corners each way: smaller, the corners would be squashed. */
+  min-width: calc(20 * var(--font-pixel)); min-height: calc(20 * var(--font-pixel));
+  padding: calc(3 * var(--font-pixel)) calc(5 * var(--font-pixel));
+  isolation: isolate;
+  color: #222; line-height: 1; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+/* Behind the text, the bubble's own size, and the tail below it. */
+.chat-bubble canvas { position: absolute; left: 0; top: 0; z-index: -1; }
+.chat-line + .chat-line { margin-top: calc(2 * var(--font-pixel)); }
+.chat-draft { color: #6f6f6f; }
+/* The postcard's text mark (.postcard-insertion): the middle half of the letter cell,
+   from 0.3125em down, in the same faint brown. */
+.chat-caret {
+  background: linear-gradient(var(--insertion), var(--insertion)) 0 0.3125em / 100% 0.5em no-repeat;
+}
+/* Takes the keystrokes; the bubble shows what is typed. 16px keeps iOS from zooming. */
+#chat-input {
+  position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0;
+  font-size: 16px; opacity: 0; pointer-events: none;
+}
 
 /* Scroll, but never pinch or double-tap zoom: the game around it cannot zoom back out. */
 dialog {
@@ -185,7 +216,7 @@ dialog[data-kind="compose"] .postcard-back :is(input, textarea)::placeholder {
   color: #d0bda1; opacity: 1;
 }
 .postcard-insertion {
-  position: absolute; pointer-events: none; background: #79573518;
+  position: absolute; pointer-events: none; background: var(--insertion);
 }
 .postcard-text-mirror {
   position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none;
@@ -287,6 +318,10 @@ dialog[data-kind="compose"] .postcard-back :is(input, textarea)::placeholder {
     display: flex; justify-content: space-between; align-items: end;
   }
   .movement-controls { display: flex; gap: 12px; }
+  .touch-controls #chat-button {
+    width: auto; height: 48px; padding: 0 calc(12px * var(--ui-scale)); align-self: center;
+    touch-action: manipulation;
+  }
   .touch-controls button {
     display: grid; place-items: center; width: 64px; height: 64px; padding: 0;
     border: 0; border-radius: 0; background: transparent; box-shadow: none;

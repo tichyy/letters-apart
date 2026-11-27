@@ -6,6 +6,7 @@ import { Viewport, type ViewLayout } from './viewport';
 import { DogFollower } from './dog-follower';
 import { PartnerPlayback } from './partner-playback';
 import { backgroundArt, cursorArt } from './art';
+import type { BubbleAnchor } from './chat-ui';
 import { snapFollowerX, snapToGrid } from './pixel-grid';
 // Characters, dog, mailbox and houses in one atlas, packed by scripts/pack_sprites.py.
 import spritesImage from '../../assets/sprites/sprites.png';
@@ -172,12 +173,29 @@ export class WorldView {
   }
 
   noticeAnchor(position: { x: number; y: number }): { x: number; y: number } {
-    const camera = this.scene.cameras.main;
+    // Above the interactable object.
+    return this.toScreen(position.x, groundY + position.y - 104, this.scene.game.canvas.getBoundingClientRect());
+  }
+
+  /** Where each character's speech bubble points: just over its head, if it is in view. */
+  bubbleAnchors(own: Side): Partial<Record<Side, BubbleAnchor>> {
     const canvas = this.scene.game.canvas.getBoundingClientRect();
-    // Above the interactable object, converted from world units to CSS pixels.
+    const anchors: Partial<Record<Side, BubbleAnchor>> = {};
+    for (const [side, sprite] of this.sprites) {
+      // The head's top is 34 art pixels (68 world units) above the feet.
+      const anchor = this.toScreen(sprite.x, sprite.y - 76, canvas);
+      // The partner's bubble shows only while they are on screen.
+      if (side === own || (anchor.x >= canvas.left && anchor.x <= canvas.right)) anchors[side] = anchor;
+    }
+    return anchors;
+  }
+
+  /** World units to CSS pixels on the page, given the canvas's place on it. */
+  private toScreen(x: number, y: number, canvas: DOMRect): { x: number; y: number } {
+    const camera = this.scene.cameras.main;
     return {
-      x: canvas.left + (position.x - camera.scrollX) * camera.zoom * canvas.width / this.scene.scale.width,
-      y: canvas.top + (groundY + position.y - 104 - camera.scrollY) * camera.zoom * canvas.height / this.scene.scale.height,
+      x: canvas.left + (x - camera.scrollX) * camera.zoom * canvas.width / this.scene.scale.width,
+      y: canvas.top + (y - camera.scrollY) * camera.zoom * canvas.height / this.scene.scale.height,
     };
   }
 

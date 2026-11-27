@@ -56,6 +56,14 @@ export interface WriteRequest {
   crop: Crop;
 }
 
+/** A committed chat line. `remaining`: milliseconds it stays up, from when it was sent to us. */
+export interface ChatLine {
+  side: Side;
+  id: string;
+  text: string;
+  remaining: number;
+}
+
 /** Everything the client sends over the game socket, after its 'hello'. */
 export type ClientMessage =
   | { type: 'input'; inputs: Input[] }
@@ -66,6 +74,9 @@ export type ClientMessage =
   | { type: 'delete'; id: number; page: number }
   | { type: 'read'; id: number }
   | { type: 'drop' }
+  | { type: 'say'; requestId: string; text: string }
+  // What the player is typing right now; '' once they stop.
+  | { type: 'draft'; text: string }
   | WriteRequest;
 
 export type Message =
@@ -81,5 +92,9 @@ export type Message =
   | { type: 'delivered'; sender: Side; recipient: Side }
   | { type: 'error'; message: string; requestId?: string }
   | { type: 'occupied' }
+  // Sent after 'welcome': the chat lines still showing and anything being typed.
+  | { type: 'chat'; lines: ChatLine[]; drafts: Record<Side, string> }
+  | { type: 'said'; line: ChatLine }
+  | { type: 'draft'; side: Side; text: string }
   // Raised by Connection, not the server: this home was opened in another window.
   | { type: 'replaced'; side: Side };
