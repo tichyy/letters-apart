@@ -62,17 +62,19 @@ test('walking, a bubble keeps its side as the head crosses the middle of the scr
   assert.deepEqual(new Set(tails), new Set([tails[0]]));
 });
 
-test('side by side, bubbles keep their sides until the other speaker is clearly past', () => {
-  let previous = { left: 'right', right: 'left' };
-  // Shuffling within a few pixels of each other: no flipping.
-  let placed = layoutBubbles({ left: box(605), right: box(600) }, { ...options, previous });
+test('a showing bubble keeps its side when the players swap places', () => {
+  const previous = { left: 'right', right: 'left' };
+  const placed = layoutBubbles({ left: box(700), right: box(600) }, { ...options, previous });
   assert.deepEqual([placed.left.tail, placed.right.tail], ['right', 'left']);
-  // Walked well past each other: each turns to open away again.
-  placed = layoutBubbles({ left: box(660), right: box(600) }, { ...options, previous });
-  assert.deepEqual([placed.left.tail, placed.right.tail], ['left', 'right']);
 });
 
-test('bubbles stay on screen, turning at the edge', () => {
+test('a showing bubble slides along the screen edge rather than turning', () => {
+  const placed = layoutBubbles({ left: box(1270) }, { ...options, previous: { left: 'left' } }).left;
+  assert.equal(placed.tail, 'left');
+  assert.equal(right(placed), 1280 - 8);
+});
+
+test('a new bubble by the screen edge opens the other way', () => {
   const placed = layoutBubbles({ left: box(1270) }, options).left;
   assert.equal(placed.tail, 'right');
   assert.ok(right(placed) <= 1280 - 8);
