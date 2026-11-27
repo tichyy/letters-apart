@@ -13,12 +13,12 @@ export class Controls {
   }
 
   // Typing in the chat stops the character, like a dialog.
-  private get blocked(): boolean { return this.ui.blocked || this.ui.chat.open || document.hidden; }
+  private get blocked(): boolean { return this.ui.captured || document.hidden; }
 
   attach(stop: () => void, resetClock: () => void): () => void {
     const detachKeyboard = this.keyboard.attach();
     const detachTouch = this.touch.attach();
-    const detachDialog = this.ui.onDialogChange(() => {
+    const detachCapture = this.ui.onCaptureChange(() => {
       this.release();
       if (this.blocked) stop();
     });
@@ -32,7 +32,7 @@ export class Controls {
     }, options);
     return () => {
       controller.abort();
-      detachDialog();
+      detachCapture();
       detachKeyboard();
       detachTouch();
     };

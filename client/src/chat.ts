@@ -90,7 +90,7 @@ export class ChatLog {
     // Keep the confirmed lines the server keeps (its last few), and every line still
     // waiting for it: one the server refuses mustn't have pushed out a good line.
     // bubble() shows only the last few of these.
-    let confirmed = lines.filter(other => !other.pending).length;
-    this.lines[line.side] = lines.filter(other => other.pending || confirmed-- <= chat.lines);
+    const kept = new Set(lines.filter(other => !other.pending).slice(-chat.lines));
+    this.lines[line.side] = lines.filter(other => other.pending || kept.has(other));
   }
 }

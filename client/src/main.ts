@@ -62,10 +62,7 @@ function receive(message: Message): void {
     case 'gallery': ui.gallery(message.postcards, message.page, message.hasMore); break;
     case 'occupied': ui.chooseHome(true); break;
     case 'replaced': ui.replaced(message.side); break;
-    case 'error':
-      if (ui.chat.fail(message.requestId)) ui.toast(message.message);
-      else ui.error(message.message, message.requestId);
-      break;
+    case 'error': ui.error(message.message, message.requestId); break;
     case 'chat': case 'said': case 'draft': ui.chat.receive(message); break;
     case 'mailbox_used': scene.useMailbox(message.side); break;
     case 'delivered':

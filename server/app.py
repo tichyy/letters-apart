@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
 from .access import SESSION_SIDE, Access, AccessMiddleware
-from .game import SIDES, Game, Peer
+from .game import QUIET, SIDES, Game, Peer
 from .image_routes import ImageService
 from .image_routes import router as image_router
 from .images import ImageStorage, LocalImageStorage
@@ -128,8 +128,6 @@ def create_app(
             old.drop(1000, "Reconnected.")
 
         game.stop(side)
-        # A replaced window's draft goes with it; the new one starts typing afresh.
-        game.end_draft(side)
         peer = Peer(socket, token)
         game.peers[side] = peer
         game.players[side].paused = False
@@ -157,12 +155,10 @@ def create_app(
                 if not isinstance(message, dict):
                     peer.send({"type": "error", "message": "Invalid message."})
                     continue
-                # Movement is bounded by its own sequence and queue checks; everything
-                # else may touch the database on the game's thread, so it is budgeted.
-                # Chat lines and drafts have budgets of their own.
+                # Everything but movement may touch the database on the game's
+                # thread, so it is budgeted (Peer.allow).
                 if not peer.allow(message.get("type")):
-                    if message.get("type") == "draft":
-                        # The next keystroke sends the whole draft again.
+                    if message.get("type") in QUIET:
                         continue
                     response = {"type": "error", "message": "Slow down a little."}
                     if isinstance(message.get("requestId"), str):
@@ -182,7 +178,6 @@ def create_app(
             if game.peers.get(side) is peer:
                 del game.peers[side]
                 game.stop(side)
-                game.end_draft(side)
             for task in tasks:
                 task.cancel()
             for task in tasks:

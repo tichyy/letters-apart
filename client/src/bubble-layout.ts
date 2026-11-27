@@ -10,13 +10,12 @@ export interface BubbleBox {
 
 /**
  * Where a bubble goes: its top-left corner, and the corner its tail hangs from
- * ('left': the bubble opens to the right of the tip). No tail: it was moved out of
- * the way, and the tail would point at the wrong bubble.
+ * ('left': the bubble opens to the right of the tip).
  */
 export interface Placement {
   left: number;
   top: number;
-  tail: Side | null;
+  tail: Side;
 }
 
 export interface LayoutOptions {
@@ -30,24 +29,35 @@ export interface LayoutOptions {
   tipInset: number;
   tailHeight: number;
   gap: number;
+  /** The corner each bubble's tail hung from last frame, for bubbles still showing. */
+  previous?: Partial<Record<Side, Side>>;
 }
 
-/** Place the bubbles over the players' heads, so that neither covers the other. */
+/** How far the other speaker must be past a player before that player's bubble
+ * turns to open away from them, in CSS pixels. Less, and two players standing
+ * together would flip their bubbles back and forth as they shuffle. */
+const turnDistance = 24;
+
+/** Place the bubbles over the players' heads. Side by side they may overlap; the
+ * player's own is drawn on top. */
 export function layoutBubbles(boxes: Partial<Record<Side, BubbleBox>>, options: LayoutOptions): Partial<Record<Side, Placement>> {
-  const { own, typing, width, height, tipInset, tailHeight, gap } = options;
-  const partner: Side = own === 'left' ? 'right' : 'left';
+  const { own, typing, width, height, tipInset, tailHeight, gap, previous = {} } = options;
   const placements: Partial<Record<Side, Placement>> = {};
   const both = boxes.left && boxes.right;
   for (const side of ['left', 'right'] as const) {
     const box = boxes[side];
     if (!box) continue;
     // Open away from the other speaker, so the two bubbles part; alone, open
-    // toward the middle of the screen, where there is room.
+    // toward the middle of the screen, where there is room. Once open, a bubble
+    // keeps its side: the camera follows the player, so their head sits on the
+    // middle line, and every pixel the camera snaps would otherwise flip it.
     const other = boxes[side === 'left' ? 'right' : 'left'];
-    const westward = both
-      ? box.x < other!.x || (box.x === other!.x && side === 'left')
-      : box.x > width / 2;
-    let tail: Side = westward ? 'right' : 'left';
+    let tail: Side;
+    if (both && (!previous[side] || Math.abs(box.x - other!.x) >= turnDistance)) {
+      tail = box.x < other!.x || (box.x === other!.x && side === 'left') ? 'right' : 'left';
+    } else {
+      tail = previous[side] ?? (box.x > width / 2 ? 'right' : 'left');
+    }
     const leftOf = (corner: Side) => corner === 'left' ? box.x - tipInset : box.x + tipInset - box.width;
     // At the screen's edge, turn the other way.
     if (tail === 'left' && leftOf('left') + box.width > width - gap) tail = 'right';
@@ -61,18 +71,5 @@ export function layoutBubbles(boxes: Partial<Record<Side, BubbleBox>>, options: 
     top = side === own && typing ? Math.min(below, Math.max(above, top)) : Math.max(above, Math.min(below, top));
     placements[side] = { left, top, tail };
   }
-  // Still in each other's way (side by side on a narrow screen): lift the partner's
-  // bubble above ours. Ours stays put: it is where the player looks while typing.
-  const mine = placements[own];
-  const theirs = placements[partner];
-  if (mine && theirs && overlaps(mine, boxes[own]!, theirs, boxes[partner]!, gap)) {
-    theirs.top = Math.max(gap, mine.top - gap - boxes[partner]!.height);
-    theirs.tail = null;
-  }
   return placements;
-}
-
-function overlaps(a: Placement, aBox: BubbleBox, b: Placement, bBox: BubbleBox, gap: number): boolean {
-  return a.left < b.left + bBox.width + gap && b.left < a.left + aBox.width + gap
-    && a.top < b.top + bBox.height + gap && b.top < a.top + aBox.height + gap;
 }

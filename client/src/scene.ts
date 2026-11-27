@@ -94,9 +94,9 @@ export class WorldScene extends Phaser.Scene {
     if (this.nearby(world.desks[side]) && !own.carrying) hint = 'E · Write a postcard';
     else if (this.nearby(world.mailboxes[side])) hint = own.unread ? 'E · Read your mail' : 'E · Check your mailbox';
     else if (this.nearby(world.mailboxes[other]) && own.carrying) hint = 'E · Deliver your postcard';
-    this.ui.setHint(this.ui.blocked || this.ui.chat.open ? '' : hint);
-    this.ui.setGalleryAvailable(!this.ui.blocked && this.nearby(world.desks[side]));
-    this.ui.setDropAvailable(!this.ui.blocked && own.carrying);
+    this.ui.setHint(this.ui.captured ? '' : hint);
+    this.ui.setGalleryAvailable(!this.ui.captured && this.nearby(world.desks[side]));
+    this.ui.setDropAvailable(!this.ui.captured && own.carrying);
   }
 
   useMailbox(side: Side): void {

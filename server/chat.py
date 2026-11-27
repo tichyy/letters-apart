@@ -58,6 +58,12 @@ class Chat:
         self.drafts[side] = ""
         return self.describe(line)
 
+    def set_draft(self, side: str, text: str) -> bool:
+        """What `side` is typing now. Returns whether it changed."""
+        changed = text != self.drafts[side]
+        self.drafts[side] = text
+        return changed
+
     def sync(self) -> dict:
         """Everything still showing, for a player who just (re)connected."""
         now = self.clock()

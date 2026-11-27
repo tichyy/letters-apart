@@ -3,6 +3,7 @@ import { paintBubble, tailHeight, tipInset } from './bubble-art';
 import { layoutBubbles, type BubbleBox } from './bubble-layout';
 import { ChatLog, cleanChat, type Bubble } from './chat';
 import { randomId } from './connection';
+import { snapToGrid } from './pixel-grid';
 import type { ClientMessage, Message, Side } from './protocol';
 
 /** Drafts go out at most this often, in milliseconds; the last one always goes. */
@@ -16,6 +17,13 @@ export interface BubbleAnchor {
   y: number;
 }
 
+interface BubbleParts {
+  element: HTMLElement;
+  /** The bubble's art, painted to its size (bubble-art.ts). */
+  art: HTMLCanvasElement;
+  text: HTMLElement;
+}
+
 /**
  * Speech-bubble chat. T (or the chat button) opens a hidden text field: what is typed
  * shows live in the player's own bubble and the partner's, and Enter says it.
@@ -23,9 +31,11 @@ export interface BubbleAnchor {
 export class ChatUI {
   private log = new ChatLog();
   private input: HTMLInputElement;
-  private bubbles: Record<Side, HTMLElement>;
+  private bubbles: Record<Side, BubbleParts>;
   private rendered: Record<Side, string> = { left: '', right: '' };
   private painted: Record<Side, string> = { left: '', right: '' };
+  /** The corner each showing bubble's tail hangs from, kept from frame to frame. */
+  private tails: Partial<Record<Side, Side>> = {};
   private side?: Side;
   private opened = false;
   /** The draft the server has for us; null when we can't be sure. */
@@ -50,7 +60,7 @@ export class ChatUI {
     this.input.spellcheck = false;
     // Focused only by opening the chat (T or the button), never by Tab.
     this.input.tabIndex = -1;
-    layer.append(this.bubbles.left, this.bubbles.right, this.input);
+    layer.append(this.bubbles.left.element, this.bubbles.right.element, this.input);
     root.append(layer);
 
     this.input.addEventListener('input', event => {
@@ -85,7 +95,6 @@ export class ChatUI {
   show(): void {
     if (!this.side || this.opened) return;
     this.opened = true;
-    this.input.value = '';
     this.log.draft(this.side, '');
     // Synchronously within the key press or tap, or phones won't raise the keyboard.
     this.input.focus({ preventScroll: true });
@@ -98,8 +107,7 @@ export class ChatUI {
     this.input.value = '';
     this.input.blur();
     if (this.side) this.log.draft(this.side, null);
-    clearTimeout(this.draftTimer);
-    this.draftTimer = undefined;
+    this.cancelDraft();
     this.sendDraft('');
     this.changed();
   }
@@ -115,8 +123,8 @@ export class ChatUI {
       this.log.sync(message.lines, message.drafts, now);
       // The server forgot our draft when we reconnected; send it again.
       this.sentDraft = '';
-      if (this.side) this.log.draft(this.side, this.opened ? this.input.value : null);
       if (this.opened) this.updateDraft();
+      else if (this.side) this.log.draft(this.side, null);
     } else if (message.type === 'said') {
       this.log.said(message.line, now);
     } else if (message.type === 'draft' && message.side !== this.side) {
@@ -130,84 +138,85 @@ export class ChatUI {
     // A refused line doesn't end the draft it came from on the server, so the
     // partner would keep seeing it: send what we're typing now (or nothing).
     this.sentDraft = null;
-    clearTimeout(this.draftTimer);
-    this.draftTimer = undefined;
+    this.cancelDraft();
     this.sendDraft(this.opened ? this.input.value : '');
     return true;
   }
 
   /** Each frame: a bubble over each character in view (undefined: not in view). */
   render(anchors: Partial<Record<Side, BubbleAnchor>>): void {
+    if (!this.side) return;
     const now = performance.now();
+    const ratio = devicePixelRatio;
+    // Device pixels per font pixel, a whole number (viewport.ts), and per pixel of
+    // the bubble sheet, whose 3-pixel lines are one font pixel.
+    const unit = Math.round(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-pixel')) * ratio) || 2;
+    const sheetPixel = unit / ratio / 3;
     const bounds = this.input.parentElement!.getBoundingClientRect();
-    // CSS pixels per pixel of the bubble sheet: its 3-pixel lines are one font pixel.
-    const sheetPixel = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-pixel')) / 3 || 2 / 3;
-    const snap = (value: number) => Math.round(value * devicePixelRatio) / devicePixelRatio;
-    // First fill each bubble and measure it, then place both together.
-    const boxes: Partial<Record<Side, BubbleBox>> = {};
+    // Fill both bubbles, then measure both, then place both together: every read
+    // before any write, so the frame lays out once.
+    const shown: { side: Side; lines: Bubble['lines'] }[] = [];
     for (const side of ['left', 'right'] as const) {
-      const element = this.bubbles[side];
-      const anchor = anchors[side];
+      const { element } = this.bubbles[side];
       const bubble = this.log.bubble(side, now);
-      // Only the one typing sees where their caret is.
-      const caret = side === this.side && this.opened ? this.input.selectionStart ?? this.input.value.length : undefined;
-      if (!anchor || (!bubble.lines.length && bubble.draft === null)) {
+      if (!anchors[side] || (!bubble.lines.length && bubble.draft === null)) {
         element.hidden = true;
+        delete this.tails[side];
         continue;
       }
       element.hidden = false;
+      // Only the one typing sees where their caret is.
+      const caret = side === this.side && this.opened ? this.input.selectionStart ?? this.input.value.length : undefined;
       this.fill(side, bubble, caret);
-      const text = element.lastElementChild!;
-      bubble.lines.forEach((line, index) => {
-        (text.children[index] as HTMLElement).style.opacity = String(line.opacity);
-      });
-      boxes[side] = {
-        x: anchor.x - bounds.left, y: anchor.y - bounds.top, width: element.offsetWidth, height: element.offsetHeight,
-      };
+      shown.push({ side, lines: bubble.lines });
     }
-    if (!this.side) return;
+    const boxes: Partial<Record<Side, BubbleBox>> = {};
+    for (const { side } of shown) {
+      const anchor = anchors[side]!;
+      const { width, height } = this.bubbles[side].element.getBoundingClientRect();
+      boxes[side] = { x: anchor.x - bounds.left, y: anchor.y - bounds.top, width, height };
+    }
     // The layer covers only the visible area, so with a phone keyboard up its bottom
     // is the keyboard's top.
     const placements = layoutBubbles(boxes, {
       own: this.side, typing: this.opened, width: bounds.width, height: bounds.height,
-      tipInset: tipInset * sheetPixel, tailHeight: tailHeight * sheetPixel, gap: edgeGap,
+      tipInset: tipInset * sheetPixel, tailHeight: tailHeight * sheetPixel, gap: edgeGap, previous: this.tails,
     });
-    for (const side of ['left', 'right'] as const) {
-      const placement = placements[side];
-      if (!placement) continue;
-      const element = this.bubbles[side];
+    for (const { side, lines } of shown) {
+      const { element, text } = this.bubbles[side];
+      const placement = placements[side]!;
+      this.tails[side] = placement.tail;
+      lines.forEach((line, index) => {
+        (text.children[index] as HTMLElement).style.opacity = String(line.opacity);
+      });
       // What you type must never be hidden behind your partner's bubble.
       element.style.zIndex = side === this.side ? '1' : '';
-      element.style.left = `${snap(placement.left)}px`;
-      element.style.top = `${snap(placement.top)}px`;
-      this.paint(side, placement.tail);
+      element.style.left = `${snapToGrid(placement.left, ratio)}px`;
+      element.style.top = `${snapToGrid(placement.top, ratio)}px`;
+      const box = boxes[side]!;
+      this.paint(side, placement.tail, Math.round(box.width * ratio), Math.round(box.height * ratio), unit);
     }
   }
 
-  private bubble(): HTMLElement {
+  private bubble(): BubbleParts {
     const element = document.createElement('div');
     element.className = 'chat-bubble';
     element.hidden = true;
-    element.append(document.createElement('canvas'), document.createElement('div'));
-    return element;
+    const art = document.createElement('canvas');
+    const text = document.createElement('div');
+    element.append(art, text);
+    return { element, art, text };
   }
 
-  /** Repaint a bubble's art when its size or tail changes, at device resolution. */
-  private paint(side: Side, tail: Side | null): void {
-    const element = this.bubbles[side];
-    const canvas = element.firstElementChild as HTMLCanvasElement;
-    const bounds = element.getBoundingClientRect();
-    const ratio = devicePixelRatio;
-    const width = Math.round(bounds.width * ratio);
-    const height = Math.round(bounds.height * ratio);
-    // Font pixels are whole device pixels (viewport.ts).
-    const unit = Math.round(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-pixel')) * ratio) || 2;
+  /** Repaint a bubble's art when its size or tail changes, in device pixels. */
+  private paint(side: Side, tail: Side, width: number, height: number, unit: number): void {
     const key = `${width}:${height}:${unit}:${tail}`;
     if (key === this.painted[side]) return;
     this.painted[side] = key;
-    paintBubble(canvas, width, height, unit, tail);
-    canvas.style.width = `${canvas.width / ratio}px`;
-    canvas.style.height = `${canvas.height / ratio}px`;
+    const { art } = this.bubbles[side];
+    paintBubble(art, width, height, unit, tail);
+    art.style.width = `${art.width / devicePixelRatio}px`;
+    art.style.height = `${art.height / devicePixelRatio}px`;
   }
 
   /** Rebuild a bubble's lines only when what it says changes. */
@@ -215,7 +224,7 @@ export class ChatUI {
     const key = JSON.stringify([bubble.lines.map(line => [line.id, line.text]), bubble.draft, caret]);
     if (key === this.rendered[side]) return;
     this.rendered[side] = key;
-    const element = this.bubbles[side].lastElementChild!;
+    const element = this.bubbles[side].text;
     element.replaceChildren(...bubble.lines.map(line => this.line(line.text)));
     if (bubble.draft !== null) {
       const draft = this.line(bubble.draft);
@@ -255,10 +264,16 @@ export class ChatUI {
     if (this.draftTimer !== undefined) return;
     const wait = this.lastDraftAt + draftInterval - performance.now();
     if (wait <= 0) this.sendDraft(this.input.value);
+    // close() cancels this, so it only ever fires while the chat is open.
     else this.draftTimer = window.setTimeout(() => {
       this.draftTimer = undefined;
-      if (this.opened) this.sendDraft(this.input.value);
+      this.sendDraft(this.input.value);
     }, wait);
+  }
+
+  private cancelDraft(): void {
+    clearTimeout(this.draftTimer);
+    this.draftTimer = undefined;
   }
 
   private sendDraft(text: string): void {
@@ -281,10 +296,12 @@ export class ChatUI {
     this.log.pending(this.side, requestId, text, performance.now());
     // Saying a line ends its draft on the server too.
     this.sentDraft = '';
-    clearTimeout(this.draftTimer);
-    this.draftTimer = undefined;
+    this.cancelDraft();
+    if (!this.stayOpen()) {
+      this.close();
+      return;
+    }
     this.input.value = '';
     this.log.draft(this.side, '');
-    if (!this.stayOpen()) this.close();
   }
 }

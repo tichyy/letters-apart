@@ -25,11 +25,16 @@ WORLD = json.loads((Path(__file__).resolve().parent.parent / "world.json").read_
 MESSAGE_RATE = 10
 MESSAGE_BURST = 20
 # Chat has budgets of its own. Lines: 10 in any 5 seconds. Drafts arrive with each
-# keystroke (clients send at most 20 a second); extras are dropped without a reply.
+# keystroke (clients send at most 20 a second).
 CHAT_RATE = 2
 CHAT_BURST = 10
 DRAFT_RATE = 30
 DRAFT_BURST = 30
+# Message kinds with a budget of their own: (rate, burst). Every other kind but
+# movement shares the general one.
+BUDGETS = {"say": (CHAT_RATE, CHAT_BURST), "draft": (DRAFT_RATE, DRAFT_BURST)}
+# Over budget, these are dropped without a reply: the next draft repeats the whole text.
+QUIET = ("draft",)
 # How far a client's inputs may run ahead of the server: the input queue limit, and
 # the catch-up allowance a stalled connection earns. They must match, or a backlog
 # larger than the allowance never drains and the player stays permanently delayed.
@@ -74,12 +79,11 @@ class Bucket:
 
     rate: float
     burst: float
-    tokens: float = -1
+    tokens: float = field(init=False)
     refilled: float = field(default_factory=lambda: time.monotonic())
 
     def __post_init__(self) -> None:
-        if self.tokens < 0:
-            self.tokens = self.burst
+        self.tokens = self.burst
 
     def take(self) -> bool:
         now = time.monotonic()
@@ -102,8 +106,9 @@ class Peer:
     dropped: asyncio.Event = field(default_factory=asyncio.Event)
     closing: tuple[int, str] | None = None
     budget: Bucket = field(default_factory=lambda: Bucket(MESSAGE_RATE, MESSAGE_BURST))
-    chat: Bucket = field(default_factory=lambda: Bucket(CHAT_RATE, CHAT_BURST))
-    drafts: Bucket = field(default_factory=lambda: Bucket(DRAFT_RATE, DRAFT_BURST))
+    budgets: dict[str, Bucket] = field(
+        default_factory=lambda: {kind: Bucket(*limits) for kind, limits in BUDGETS.items()}
+    )
 
     def drop(self, code: int, reason: str) -> None:
         if self.closing is None:
@@ -139,11 +144,8 @@ class Peer:
             return True
         # Anything else, malformed types included, spends the general budget; the
         # handler then answers an unknown type with an error.
-        if kind == "say":
-            return self.chat.take()
-        if kind == "draft":
-            return self.drafts.take()
-        return self.budget.take()
+        bucket = self.budgets.get(kind) if isinstance(kind, str) else None
+        return (bucket or self.budget).take()
 
     async def write(self) -> None:
         while True:
@@ -294,6 +296,8 @@ class Game:
         player.actions.clear()
         player.credit = 0
         pause(player)
+        # A draft lasts only while its connection does; a new window starts afresh.
+        self.set_draft(side, "")
 
     def healthy(self) -> bool:
         """True while the game loop is ticking."""
@@ -523,20 +527,11 @@ class Game:
 
     def draft(self, side: str, message: dict, _token: str | None) -> None:
         """What the player is typing right now, shown live to the other player."""
-        text = chat_text(message)
-        if text != self.chat.drafts[side]:
-            self.chat.drafts[side] = text
-            self.tell_partner(side, {"type": "draft", "side": side, "text": text})
+        self.set_draft(side, chat_text(message))
 
-    def end_draft(self, side: str) -> None:
-        """A draft lasts only while its connection does."""
-        if self.chat.drafts[side]:
-            self.chat.drafts[side] = ""
-            self.tell_partner(side, {"type": "draft", "side": side, "text": ""})
-
-    def tell_partner(self, side: str, message: dict) -> None:
-        if peer := self.peers.get("right" if side == "left" else "left"):
-            peer.send(message)
+    def set_draft(self, side: str, text: str) -> None:
+        if self.chat.set_draft(side, text) and (peer := self.peers.get(other(side))):
+            peer.send({"type": "draft", "side": side, "text": text})
 
     def drop(self, side: str, _message: dict, _token: str | None) -> dict | None:
         if not self.mail[side]["carrying"]:
@@ -547,24 +542,28 @@ class Game:
 
     def interact(self, side: str, _message: dict, _token: str | None) -> dict | None:
         """Use whatever is in reach: the desk, the partner's mailbox or your own."""
-        other = "right" if side == "left" else "left"
+        partner = other(side)
         carrying = self.mail[side]["carrying"]
         if self.nearby(side, WORLD["desks"][side]):
             return None if carrying else {"type": "compose", **self.store.last_address(side)}
-        if self.nearby(side, WORLD["mailboxes"][other]):
+        if self.nearby(side, WORLD["mailboxes"][partner]):
             if not carrying:
                 return None
-            self.use_mailbox(other)
+            self.use_mailbox(partner)
             self.store.deliver(side)
             self.refresh_mail()
             for peer in self.peers.values():
-                peer.send({"type": "delivered", "sender": side, "recipient": other})
+                peer.send({"type": "delivered", "sender": side, "recipient": partner})
             return None
         if self.nearby(side, WORLD["mailboxes"][side]):
             self.use_mailbox(side)
             cards = self.store.inbox(side)
             return {"type": "mailbox", "postcards": cards} if cards else None
         return None
+
+
+def other(side: str) -> str:
+    return "right" if side == "left" else "left"
 
 
 def pause(player: Player) -> None:

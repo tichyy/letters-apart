@@ -33,15 +33,11 @@ test('side by side, each bubble opens away from the other speaker', () => {
   assert.ok(apart(swapped.left, swapped.right));
 });
 
-test('on a narrow screen the partner\'s bubble moves above ours, without a tail', () => {
-  // Codex's case: 390 px wide, 240 px bubbles over heads at 200 and 240.
+test('on a narrow screen both bubbles stay over their heads, even overlapping', () => {
   const narrow = { ...options, width: 390 };
   const placed = layoutBubbles({ left: box(200), right: box(240) }, narrow);
-  assert.ok(apart(placed.left, placed.right), JSON.stringify(placed));
-  assert.equal(placed.right.tail, null);
-  assert.ok(placed.left.tail !== null);
-  // Ours keeps its place over our head.
   assert.equal(placed.left.top, 400 - 12 - 44);
+  assert.equal(placed.right.top, 400 - 12 - 44);
 });
 
 test('a draft taller than the space above the keyboard keeps its bottom line in view', () => {
@@ -52,6 +48,28 @@ test('a draft taller than the space above the keyboard keeps its bottom line in 
   // Not typing (or the partner's bubble), its top stays in view instead.
   const reading = layoutBubbles({ left: box(300, 240, 400, 290) }, { ...keyboard, typing: false }).left;
   assert.equal(reading.top, 8);
+});
+
+test('walking, a bubble keeps its side as the head crosses the middle of the screen', () => {
+  // The camera follows the player: their head jitters around the middle (640).
+  let previous = {};
+  const tails = [];
+  for (const x of [641, 639, 640.5, 638, 642]) {
+    const placed = layoutBubbles({ left: box(x) }, { ...options, previous });
+    previous = { left: placed.left.tail };
+    tails.push(placed.left.tail);
+  }
+  assert.deepEqual(new Set(tails), new Set([tails[0]]));
+});
+
+test('side by side, bubbles keep their sides until the other speaker is clearly past', () => {
+  let previous = { left: 'right', right: 'left' };
+  // Shuffling within a few pixels of each other: no flipping.
+  let placed = layoutBubbles({ left: box(605), right: box(600) }, { ...options, previous });
+  assert.deepEqual([placed.left.tail, placed.right.tail], ['right', 'left']);
+  // Walked well past each other: each turns to open away again.
+  placed = layoutBubbles({ left: box(660), right: box(600) }, { ...options, previous });
+  assert.deepEqual([placed.left.tail, placed.right.tail], ['left', 'right']);
 });
 
 test('bubbles stay on screen, turning at the edge', () => {

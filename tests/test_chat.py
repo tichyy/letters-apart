@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fontTools.ttLib import TTFont
 
-from conftest import join
+from conftest import join, receive_type
 from server.app import create_app
 from server.chat import CHAT, Chat, clean, lifetime
 from server.game import CHAT_BURST, Game, Peer
@@ -27,12 +27,6 @@ def game(tmp_path):
     store.close()
 
 
-def receive_type(socket, kind):
-    for _ in range(240):
-        message = socket.receive_json()
-        if message["type"] == kind:
-            return message
-    raise AssertionError(f"No {kind} message received")
 
 
 def test_chat_characters_are_exactly_what_the_font_draws():
