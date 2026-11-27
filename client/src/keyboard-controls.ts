@@ -1,11 +1,11 @@
 const jumpKeys = ['Space', 'ArrowUp', 'KeyW'];
-const gameKeys = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', 'KeyF', 'KeyQ', ...jumpKeys];
+const gameKeys = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyE', 'KeyF', 'KeyQ', 'KeyT', ...jumpKeys];
 
 export class KeyboardControls {
   private keys = new Set<string>();
   private jumpRequested = false;
 
-  constructor(private blocked: () => boolean, private interact: () => void, private openLibrary: () => void, private holdDrop: (held: boolean) => void) {}
+  constructor(private blocked: () => boolean, private interact: () => void, private openLibrary: () => void, private holdDrop: (held: boolean) => void, private openChat: () => void) {}
 
   attach(): () => void {
     const controller = new AbortController();
@@ -19,6 +19,8 @@ export class KeyboardControls {
       if (event.code === 'KeyE' && !event.repeat) this.interact();
       if (event.code === 'KeyF' && !event.repeat) this.openLibrary();
       if (event.code === 'KeyQ' && !event.repeat) this.holdDrop(true);
+      // Prevented above, so the T itself isn't typed into the chat it opens.
+      if (event.code === 'KeyT' && !event.repeat) this.openChat();
     }, options);
     window.addEventListener('keyup', event => {
       this.keys.delete(event.code);

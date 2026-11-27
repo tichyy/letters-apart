@@ -7,7 +7,7 @@ RUN npm ci --no-audit --no-fund
 
 COPY client/ ./
 COPY assets/ /app/assets/
-COPY world.json /app/world.json
+COPY world.json chat.json /app/
 RUN npm run build
 
 # Server
@@ -25,7 +25,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-cache
 
 COPY server/ ./server/
-COPY world.json ./
+COPY world.json chat.json ./
 COPY --from=client /app/dist ./dist
 RUN useradd --uid 10001 --user-group --no-create-home --no-log-init app \
     && mkdir /data && chown app:app /data

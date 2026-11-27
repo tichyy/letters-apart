@@ -58,6 +58,8 @@ export class WorldScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.active || !this.connection.ready || !this.players.length) {
+      // Reconnecting, you can keep typing: keep the bubbles where they were.
+      this.ui.chat.render(this.active && this.connection.side ? this.view.bubbleAnchors(this.connection.side) : {});
       this.ui.setHint('');
       this.ui.setGalleryAvailable(false);
       return;
@@ -70,6 +72,7 @@ export class WorldScene extends Phaser.Scene {
     const { pose } = frame;
     this.view.renderPlayers(this.players, this.connection.side!, pose, this.controls.direction(), delta);
     this.view.followPlayer(pose.x);
+    this.ui.chat.render(this.view.bubbleAnchors(this.connection.side!));
     const anchor = this.ui.noticeAnchor;
     if (anchor) {
       const { x, y } = this.view.noticeAnchor(anchor);
@@ -91,7 +94,7 @@ export class WorldScene extends Phaser.Scene {
     if (this.nearby(world.desks[side]) && !own.carrying) hint = 'E · Write a postcard';
     else if (this.nearby(world.mailboxes[side])) hint = own.unread ? 'E · Read your mail' : 'E · Check your mailbox';
     else if (this.nearby(world.mailboxes[other]) && own.carrying) hint = 'E · Deliver your postcard';
-    this.ui.setHint(this.ui.blocked ? '' : hint);
+    this.ui.setHint(this.ui.blocked || this.ui.chat.open ? '' : hint);
     this.ui.setGalleryAvailable(!this.ui.blocked && this.nearby(world.desks[side]));
     this.ui.setDropAvailable(!this.ui.blocked && own.carrying);
   }

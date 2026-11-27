@@ -8,18 +8,19 @@ export class Controls {
   private touch: TouchControls;
 
   constructor(private ui: UI) {
-    this.keyboard = new KeyboardControls(() => this.blocked, () => ui.interact(), () => ui.openLibrary(), held => ui.holdDrop(held));
+    this.keyboard = new KeyboardControls(() => this.blocked, () => ui.interact(), () => ui.openLibrary(), held => ui.holdDrop(held), () => ui.chat.show());
     this.touch = new TouchControls(ui.gameplay, () => this.blocked);
   }
 
-  private get blocked(): boolean { return this.ui.blocked || document.hidden; }
+  // Typing in the chat stops the character, like a dialog.
+  private get blocked(): boolean { return this.ui.blocked || this.ui.chat.open || document.hidden; }
 
   attach(stop: () => void, resetClock: () => void): () => void {
     const detachKeyboard = this.keyboard.attach();
     const detachTouch = this.touch.attach();
     const detachDialog = this.ui.onDialogChange(() => {
       this.release();
-      if (this.ui.blocked) stop();
+      if (this.blocked) stop();
     });
     const controller = new AbortController();
     const options = { signal: controller.signal };

@@ -14,6 +14,7 @@ from typing import Callable
 
 from fastapi import WebSocket
 
+from .chat import MAX_RAW_LENGTH, Chat, clean
 from .images import IMAGE_ID
 from .store import Store, session_owner
 
@@ -23,6 +24,12 @@ WORLD = json.loads((Path(__file__).resolve().parent.parent / "world.json").read_
 # Non-movement messages (interactions, reads, writes) per peer: sustained rate and burst.
 MESSAGE_RATE = 10
 MESSAGE_BURST = 20
+# Chat has budgets of its own. Lines: 10 in any 5 seconds. Drafts arrive with each
+# keystroke (clients send at most 20 a second); extras are dropped without a reply.
+CHAT_RATE = 2
+CHAT_BURST = 10
+DRAFT_RATE = 30
+DRAFT_BURST = 30
 # How far a client's inputs may run ahead of the server: the input queue limit, and
 # the catch-up allowance a stalled connection earns. They must match, or a backlog
 # larger than the allowance never drains and the player stays permanently delayed.
@@ -62,6 +69,31 @@ class Player:
 
 
 @dataclass
+class Bucket:
+    """A token bucket: `rate` tokens a second, holding at most `burst`."""
+
+    rate: float
+    burst: float
+    tokens: float = -1
+    refilled: float = field(default_factory=lambda: time.monotonic())
+
+    def __post_init__(self) -> None:
+        if self.tokens < 0:
+            self.tokens = self.burst
+
+    def take(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(
+            self.burst, self.tokens + max(0, now - self.refilled) * self.rate
+        )
+        self.refilled = now
+        if self.tokens < 1:
+            return False
+        self.tokens -= 1
+        return True
+
+
+@dataclass
 class Peer:
     socket: WebSocket
     token: str
@@ -69,8 +101,9 @@ class Peer:
     # Set once this connection must end; its handler closes the socket with `closing`.
     dropped: asyncio.Event = field(default_factory=asyncio.Event)
     closing: tuple[int, str] | None = None
-    budget: float = MESSAGE_BURST
-    refilled: float = field(default_factory=lambda: time.monotonic())
+    budget: Bucket = field(default_factory=lambda: Bucket(MESSAGE_RATE, MESSAGE_BURST))
+    chat: Bucket = field(default_factory=lambda: Bucket(CHAT_RATE, CHAT_BURST))
+    drafts: Bucket = field(default_factory=lambda: Bucket(DRAFT_RATE, DRAFT_BURST))
 
     def drop(self, code: int, reason: str) -> None:
         if self.closing is None:
@@ -99,17 +132,18 @@ class Peer:
             return
         self.outbox.put_nowait(message)
 
-    def allow(self) -> bool:
-        """Spend one token from this peer's message budget."""
-        now = time.monotonic()
-        self.budget = min(
-            MESSAGE_BURST, self.budget + max(0, now - self.refilled) * MESSAGE_RATE
-        )
-        self.refilled = now
-        if self.budget < 1:
-            return False
-        self.budget -= 1
-        return True
+    def allow(self, kind: object = None) -> bool:
+        """Spend one token from the budget for this kind of message."""
+        if kind == "input":
+            # Bounded by its own sequence and queue checks.
+            return True
+        # Anything else, malformed types included, spends the general budget; the
+        # handler then answers an unknown type with an error.
+        if kind == "say":
+            return self.chat.take()
+        if kind == "draft":
+            return self.drafts.take()
+        return self.budget.take()
 
     async def write(self) -> None:
         while True:
@@ -158,6 +192,7 @@ class Game:
         self.mail = {side: store.summary(side) for side in SIDES}
         self.last_tick: float | None = None
         self.last_error = -math.inf
+        self.chat = Chat(SIDES)
         self.handlers: dict[str, Callable[[str, dict, str | None], dict | None]] = {
             "input": self.receive_inputs,
             "stop": self.pause,
@@ -167,6 +202,8 @@ class Game:
             "read": self.read,
             "write": self.write,
             "drop": self.drop,
+            "say": self.say,
+            "draft": self.draft,
         }
 
     def snapshot(self) -> dict:
@@ -472,6 +509,35 @@ class Game:
         self.refresh_mail()
         return acknowledgement
 
+    def say(self, side: str, message: dict, _token: str | None) -> None:
+        """Commit a chat line. Both players get it, the speaker as confirmation."""
+        request_id = message.get("requestId")
+        if not hex_id(request_id):
+            raise ValueError("Invalid chat message.")
+        text = chat_text(message)
+        if not text.strip():
+            raise ValueError("Write something to say.")
+        line = self.chat.say(side, request_id, text.strip())
+        for peer in self.peers.values():
+            peer.send({"type": "said", "line": line})
+
+    def draft(self, side: str, message: dict, _token: str | None) -> None:
+        """What the player is typing right now, shown live to the other player."""
+        text = chat_text(message)
+        if text != self.chat.drafts[side]:
+            self.chat.drafts[side] = text
+            self.tell_partner(side, {"type": "draft", "side": side, "text": text})
+
+    def end_draft(self, side: str) -> None:
+        """A draft lasts only while its connection does."""
+        if self.chat.drafts[side]:
+            self.chat.drafts[side] = ""
+            self.tell_partner(side, {"type": "draft", "side": side, "text": ""})
+
+    def tell_partner(self, side: str, message: dict) -> None:
+        if peer := self.peers.get("right" if side == "left" else "left"):
+            peer.send(message)
+
     def drop(self, side: str, _message: dict, _token: str | None) -> dict | None:
         if not self.mail[side]["carrying"]:
             return None
@@ -507,6 +573,13 @@ def pause(player: Player) -> None:
     player.moving = False
     player.jump_held = False
     player.jump_chain = 0
+
+
+def chat_text(message: dict) -> str:
+    text = message.get("text")
+    if not isinstance(text, str) or len(text) > MAX_RAW_LENGTH:
+        raise ValueError("Invalid chat message.")
+    return clean(text)
 
 
 def postcard_id(message: dict) -> int:

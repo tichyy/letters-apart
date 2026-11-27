@@ -172,12 +172,30 @@ export class WorldView {
   }
 
   noticeAnchor(position: { x: number; y: number }): { x: number; y: number } {
+    // Above the interactable object.
+    return this.toScreen(position.x, groundY + position.y - 104);
+  }
+
+  /** Where each character's speech bubble points: just over its head, if it is in view. */
+  bubbleAnchors(own: Side): Partial<Record<Side, { x: number; y: number }>> {
+    const canvas = this.scene.game.canvas.getBoundingClientRect();
+    const anchors: Partial<Record<Side, { x: number; y: number }>> = {};
+    for (const [side, sprite] of this.sprites) {
+      // The head's top is 34 art pixels (68 world units) above the feet.
+      const anchor = this.toScreen(sprite.x, sprite.y - 76);
+      // The partner's bubble shows only while they are on screen.
+      if (side === own || (anchor.x >= canvas.left && anchor.x <= canvas.right)) anchors[side] = anchor;
+    }
+    return anchors;
+  }
+
+  /** World units to CSS pixels on the page. */
+  private toScreen(x: number, y: number): { x: number; y: number } {
     const camera = this.scene.cameras.main;
     const canvas = this.scene.game.canvas.getBoundingClientRect();
-    // Above the interactable object, converted from world units to CSS pixels.
     return {
-      x: canvas.left + (position.x - camera.scrollX) * camera.zoom * canvas.width / this.scene.scale.width,
-      y: canvas.top + (groundY + position.y - 104 - camera.scrollY) * camera.zoom * canvas.height / this.scene.scale.height,
+      x: canvas.left + (x - camera.scrollX) * camera.zoom * canvas.width / this.scene.scale.width,
+      y: canvas.top + (y - camera.scrollY) * camera.zoom * canvas.height / this.scene.scale.height,
     };
   }
 

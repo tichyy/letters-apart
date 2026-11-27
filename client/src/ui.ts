@@ -1,5 +1,6 @@
 import type { ClientMessage, Postcard, Side, Stamp } from './protocol';
 import type { Connection } from './connection';
+import { ChatUI } from './chat-ui';
 import { PhotoEditor } from './photo-editor';
 import { PostcardOutbox } from './postcard-outbox';
 import { pinchedWidth, scrollAround } from './card-zoom';
@@ -19,6 +20,7 @@ interface LibraryPages {
 
 export class UI {
   readonly gameplay: HTMLElement;
+  readonly chat: ChatUI;
   private panel = document.createElement('dialog');
   private hint: HTMLButtonElement;
   private galleryButton: HTMLButtonElement;
@@ -75,6 +77,7 @@ export class UI {
               <span class="control-art" aria-hidden="true"></span>
             </button>
           </div>
+          <button type="button" id="chat-button" class="interaction">chat</button>
           <button type="button" data-control="jump" aria-label="Jump">
             <span class="control-art" aria-hidden="true"></span>
           </button>
@@ -85,7 +88,14 @@ export class UI {
     this.galleryButton = root.querySelector('#gallery')!;
     this.dropButton = root.querySelector('#drop')!;
     this.notice = root.querySelector('#notice')!;
+    this.chat = new ChatUI(root, send, () => this.events.dispatchEvent(new Event('dialogchange')), coarsePointer);
     root.append(this.panel);
+    const chatButton = root.querySelector<HTMLButtonElement>('#chat-button')!;
+    // Keep the chat field focused through the tap, so the button can close it too.
+    chatButton.addEventListener('pointerdown', event => event.preventDefault());
+    chatButton.onclick = () => this.chat.toggle();
+    // The game canvas takes no focus, so tapping it wouldn't end typing by itself.
+    document.getElementById('game')?.addEventListener('pointerdown', () => this.chat.close());
     this.hint.onclick = () => this.interact();
     this.galleryButton.textContent = coarsePointer() ? 'Received postcards' : 'F · Received postcards';
     this.galleryButton.onclick = () => this.openLibrary();
@@ -144,6 +154,7 @@ export class UI {
   }
 
   private syncGameplay(): void {
+    if (this.blocked) this.chat.close();
     this.gameplay.hidden = this.blocked;
     this.events.dispatchEvent(new Event('dialogchange'));
   }
@@ -330,6 +341,7 @@ export class UI {
 
   connected(side: Side): void {
     this.side = side;
+    this.chat.connected(side);
     this.outbox.resume(side);
   }
 
